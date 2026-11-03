@@ -1,0 +1,12 @@
+From: "soporte@proveedor-nuevo.com" <soporte@proveedor-nuevo.com>
+To: kevin@sagetasolutions.com
+Subject: Su solicitud de acceso ha sido registrada
+Date: Tue, 03 Nov 2026 11:00:00 +0100
+Message-ID: <15-proveedor-solicitud@localmail.fixtures>
+Authentication-Results:
+ mx.google.com; spf=fail smtp.mailfrom=proveedor-nuevo.com
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+MIME-Version: 1.0
+
+Hemos recibido su solicitud. Un agente la revisará en 48 horas.
