@@ -230,6 +230,11 @@ Dos consecuencias que no son opinables:
   escribe el clasificador no es la precision del producto. El valor por defecto es
   `false` y hay que declararlo a proposito: si fuera `true`, un set de pruebas acabaria
   en la cara del usuario por olvido.
+- **PENDIENTE: el test de la regla 1.** §1 pide un test que parchee el socket y falle
+  si el proceso conecta a cualquier host que no sea el IMAP configurado o 127.0.0.1, y
+  dice que ese test "es parte del producto, no un extra". No esta escrito. Hasta que lo
+  este, la regla de cero red es una decision de diseno respetada a mano, no una garantia
+  verificada, y la documentacion no debe decir lo contrario.
 - **Lo que falta para los hitos de datos reales:** una contrasena de aplicacion IMAP de
   una cuenta de verdad. El hito 2 pide 5.000 correos ingeridos y el hito 5 pide 250
   etiquetados a mano; ninguno de los dos se puede cerrar con datos inventados.
