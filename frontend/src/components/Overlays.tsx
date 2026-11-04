@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MODEL_STATUS, type Email } from "@/lib/mock";
+import { type Email } from "@/lib/mock";
+import { useModelStatus } from "@/lib/model-status";
 import { Avatar, Kbd } from "./bits";
 
 /** Simulated hybrid search: exact match (BM25) + "semantic" matching over words. */
@@ -24,9 +25,9 @@ export function SearchOverlay({
     const t = q.toLowerCase();
     return emails
       .map((e) => {
-        const texto = `${e.subject} ${e.from.name} ${e.from.email} ${e.preview} ${e.body.join(" ")}`.toLowerCase();
-        const exacta = texto.includes(t);
-        const sem = t.split(/\s+/).filter((w) => w.length > 3 && texto.includes(w)).length;
+        const text = `${e.subject} ${e.from.name} ${e.from.email} ${e.preview} ${e.body.join(" ")}`.toLowerCase();
+        const exacta = text.includes(t);
+        const sem = t.split(/\s+/).filter((w) => w.length > 3 && text.includes(w)).length;
         return { e, score: (exacta ? 2 : 0) + sem, exacta };
       })
       .filter((r) => r.score > 0)
@@ -107,22 +108,23 @@ export function SearchOverlay({
 }
 
 export function SettingsPanel({ examples, onClose }: { examples: number; onClose: () => void }) {
-  const { examplesBySource: src } = MODEL_STATUS;
+  const modelStatus = useModelStatus();
+  const { examplesBySource: src } = modelStatus;
   const filas: [string, string][] = [
-    ["Language model", MODEL_STATUS.ollamaAvailable ? MODEL_STATUS.slm : `${MODEL_STATUS.slm} (unavailable)`],
+    ["Language model", modelStatus.ollamaAvailable ? modelStatus.slm : `${modelStatus.slm} (unavailable)`],
     ["Classifier examples", `${examples}`],
     ["· corrected by you", `${src.user}`],
     ["· from your Sent folder", `${src.bootstrapSent}`],
     ["· from your folders", `${src.bootstrapFolder}`],
     // null is not 0: it means there is no evaluation set to measure against yet.
-    ["Measured accuracy", MODEL_STATUS.precision === null ? "not measured yet" : `${Math.round(MODEL_STATUS.precision * 100)}%`],
-    ["Last trained", MODEL_STATUS.lastTrained ?? "never"],
-    ["Emails indexed", MODEL_STATUS.indexedEmails.toLocaleString("en-US")],
+    ["Measured accuracy", modelStatus.precision === null ? "not measured yet" : `${Math.round(modelStatus.precision * 100)}%`],
+    ["Last trained", modelStatus.lastTrained ?? "never"],
+    ["Emails indexed", modelStatus.indexedEmails.toLocaleString("en-US")],
     [
       "Search model",
-      MODEL_STATUS.embeddingsAvailable
-        ? MODEL_STATUS.embeddings
-        : (MODEL_STATUS.embeddingsMissingReason ?? "unavailable"),
+      modelStatus.embeddingsAvailable
+        ? modelStatus.embeddings
+        : (modelStatus.embeddingsMissingReason ?? "unavailable"),
     ],
   ];
 
@@ -182,7 +184,7 @@ export function SettingsPanel({ examples, onClose }: { examples: number; onClose
 }
 
 /** Heuristics 3 and 9: every action can be undone, and the way back is in plain sight. */
-export function Toast({ texto, onUndo }: { texto: string; onUndo?: () => void }) {
+export function Toast({ text, onUndo }: { text: string; onUndo?: () => void }) {
   return (
     <div
       role="status"
@@ -191,7 +193,7 @@ export function Toast({ texto, onUndo }: { texto: string; onUndo?: () => void })
       style={{ background: "var(--dark)", color: "#fff" }}
     >
       <span style={{ color: "var(--ok)" }}>✓</span>
-      <span className="truncate">{texto}</span>
+      <span className="truncate">{text}</span>
       {onUndo && (
         <button
           onClick={onUndo}

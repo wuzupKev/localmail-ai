@@ -1,91 +1,217 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { BUCKETS, EMAILS, MODEL_STATUS, isUnsure, type Bucket, type Email } from "@/lib/mock";
-import { Sidebar, type Vista } from "@/components/Sidebar";
+import { BUCKETS, EMAILS, MODEL_STATUS, isUnsure, type Bucket, type Drawer, type Email } from "@/lib/mock";
+import { api, ApiError, API_URL, type Counts } from "@/lib/api";
+import { ModelStatusProvider } from "@/lib/model-status";
+import { Sidebar } from "@/components/Sidebar";
 import { BucketTiles } from "@/components/BucketTiles";
 import { EmailList } from "@/components/EmailList";
 import { DetailPanel, DetailSheet } from "@/components/DetailPanel";
 import { ConfirmDialog, HelpOverlay, SearchOverlay, SettingsPanel, Toast } from "@/components/Overlays";
 import { IconButton } from "@/components/bits";
 
-type Undo = { email: Email; examples: number };
-
 /**
  * Next 16 does not allow reading the clock during prerender, so the date is a
  * client-only value: empty on the server, resolved and cached in the browser.
  */
-let fechaCache: string | null = null;
-const sinSuscripcion = () => () => {};
-const fechaCliente = () => {
-  fechaCache ??= new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-  return fechaCache;
+let dateCache: string | null = null;
+const noSubscription = () => () => {};
+const clientDate = () => {
+  dateCache ??= new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return dateCache;
 };
-const useFechaHoy = () => useSyncExternalStore(sinSuscripcion, fechaCliente, () => "");
+const useToday = () => useSyncExternalStore(noSubscription, clientDate, () => "");
 
-const LUPA = (
+/**
+ * Whether we are talking to the service.
+ *
+ * "offline" is a first-class state, not an error screen: running the interface without
+ * the backend is normal during design work. It falls back to the mock and says so, so
+ * nobody mistakes sample data for their own mail.
+ */
+type Connection = "connecting" | "live" | "offline";
+
+const MAGNIFIER = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
     <circle cx="7.2" cy="7.2" r="4.6" stroke="currentColor" strokeWidth="1.5" />
     <path d="m10.7 10.7 2.8 2.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 
+/** Counts derived from the mock, for the offline fallback only. */
+function mockCounts(emails: Email[]): Counts {
+  const unsure = emails.filter(isUnsure);
+  const of = (b: Bucket) => emails.filter((e) => e.bucket === b && !isUnsure(e)).length;
+  return {
+    reply: of("reply"),
+    fyi: of("fyi"),
+    automated: of("automated"),
+    noise: of("noise"),
+    unsure: unsure.length,
+    unread: emails.filter((e) => e.unread).length,
+  };
+}
+
 export default function Page() {
-  const [emails, setEmails] = useState<Email[]>(EMAILS);
-  const [vista, setVista] = useState<Vista>("reply");
-  const [selectedId, setSelectedId] = useState<string | null>("e1");
-  const [modal, setModal] = useState<null | "buscar" | "ajustes" | "ayuda" | "confirmar">(null);
-  const [navAbierta, setNavAbierta] = useState(false);
-  const [hojaAbierta, setHojaAbierta] = useState(false);
-  const [toast, setToast] = useState<{ texto: string; undo: boolean } | null>(null);
+  const [connection, setConnection] = useState<Connection>("connecting");
+  const [drawer, setDrawer] = useState<Drawer>("reply");
+  const [emails, setEmails] = useState<Email[]>([]);
+  const [counts, setCounts] = useState<Counts>(() => mockCounts(EMAILS));
+  const [modelStatus, setModelStatus] = useState(MODEL_STATUS);
+  const [loadingList, setLoadingList] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [modal, setModal] = useState<null | "search" | "settings" | "help" | "confirm">(null);
+  const [navOpen, setNavOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null);
   const [examples, setExamples] = useState(MODEL_STATUS.examples);
-  const [pendientes, setPendientes] = useState(0);
-  const [sync, setSync] = useState<{ estado: "idle" | "syncing"; desde: number }>({ estado: "idle", desde: 2 });
+  const [pending, setPending] = useState(0);
 
-  const undoRef = useRef<Undo | null>(null);
+  // Guards against a slow drawer response landing after the user moved on.
+  const requestId = useRef(0);
 
-  // The split into five drawers is the server's decision: simulated here with the same rule.
-  const dudosos = useMemo(() => emails.filter(isUnsure), [emails]);
-  const visibles = useMemo(
-    () => (vista === "unsure" ? dudosos : emails.filter((e) => e.bucket === vista && !isUnsure(e))),
-    [emails, vista, dudosos]
-  );
-  const seleccionado = emails.find((e) => e.id === selectedId) ?? null;
+  const offline = connection === "offline";
+
+  /** Counts and model status: the two things that describe the whole inbox. */
+  const refreshSummary = useCallback(async () => {
+    const [c, m] = await Promise.all([api.counts(), api.modelStatus()]);
+    setCounts(c);
+    setModelStatus(m);
+    setExamples(m.examples);
+  }, []);
+
+  /** First contact. Deciding live-versus-offline once keeps every later call simple. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await api.health();
+        if (cancelled) return;
+        await refreshSummary();
+        if (cancelled) return;
+        setConnection("live");
+      } catch (e) {
+        if (cancelled) return;
+        setConnection("offline");
+        setCounts(mockCounts(EMAILS));
+        setEmails(EMAILS.filter((x) => x.bucket === "reply" && !isUnsure(x)));
+        setSelectedId(EMAILS[0]?.id ?? null);
+        setLoadingList(false);
+        setFailure(e instanceof ApiError ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshSummary]);
+
+  /** The drawer's contents. The server decides what belongs in it; we just render it. */
+  useEffect(() => {
+    if (connection !== "live") return;
+    const id = ++requestId.current;
+    setLoadingList(true);
+    (async () => {
+      try {
+        const page = await api.emails(drawer);
+        if (id !== requestId.current) return;
+        setEmails(page.items);
+        setSelectedId(page.items[0]?.id ?? null);
+        setFailure(null);
+      } catch (e) {
+        if (id !== requestId.current) return;
+        setFailure(e instanceof ApiError ? e.message : String(e));
+      } finally {
+        if (id === requestId.current) setLoadingList(false);
+      }
+    })();
+  }, [connection, drawer]);
+
+  const selected = emails.find((e) => e.id === selectedId) ?? null;
 
   /**
-   * In the real backend a correction is stored as an event
-   * (email_id, bucket_before, bucket_after, source, timestamp), never overwriting the label.
+   * A correction is an event on the server, not a label overwritten here. The response
+   * carries the retrained example count, so the toast reports the real number.
    */
   const reclassify = useCallback(
-    (id: string, bucket: Bucket) => {
-      const anterior = emails.find((e) => e.id === id);
-      if (!anterior || anterior.bucket === bucket) return;
+    async (id: string, bucket: Bucket) => {
+      const previous = emails.find((e) => e.id === id);
+      if (!previous || previous.bucket === bucket) return;
 
-      undoRef.current = { email: anterior, examples };
-      setEmails((prev) =>
-        prev.map((e) =>
-          e.id === id
-            ? { ...e, bucket, confidence: 1, signals: [{ label: "Corrected by you", sign: "pos" as const }, ...e.signals] }
-            : e
-        )
-      );
-      setExamples((n) => n + 1);
-      setPendientes((n) => n + 1);
-      setToast({ texto: `Moved to ${BUCKETS.find((b) => b.id === bucket)!.short} · ${examples + 1} examples`, undo: true });
+      const short = BUCKETS.find((b) => b.id === bucket)!.short;
+
+      if (offline) {
+        setEmails((prev) => prev.map((e) => (e.id === id ? { ...e, bucket, confidence: 1 } : e)));
+        setExamples((n) => n + 1);
+        setPending((n) => n + 1);
+        setToast({ text: `Moved to ${short} · ${examples + 1} examples`, undo: true });
+        return;
+      }
+
+      try {
+        const { examples: total } = await api.reclassify(id, bucket);
+        setExamples(total);
+        setPending((n) => n + 1);
+        setToast({ text: `Moved to ${short} · ${total} examples`, undo: true });
+        // It has usually left the drawer, so both the list and the tiles are stale.
+        const [page] = await Promise.all([api.emails(drawer), refreshSummary()]);
+        setEmails(page.items);
+        setSelectedId((cur) => (page.items.some((e) => e.id === cur) ? cur : (page.items[0]?.id ?? null)));
+      } catch (e) {
+        setToast({ text: e instanceof ApiError ? e.message : "the correction failed", undo: false });
+      }
     },
-    [emails, examples]
+    [emails, offline, examples, drawer, refreshSummary]
   );
 
-  // Heuristic 3: user control and freedom. Every reclassification is reversible.
-  const deshacer = useCallback(() => {
-    const u = undoRef.current;
-    if (!u) return;
-    setEmails((prev) => prev.map((e) => (e.id === u.email.id ? u.email : e)));
-    setExamples(u.examples);
-    setPendientes((n) => Math.max(0, n - 1));
-    undoRef.current = null;
-    setToast({ texto: "Change undone", undo: false });
-  }, []);
+  /** Heuristic 3: user control and freedom. Every reclassification is reversible. */
+  const undo = useCallback(async () => {
+    if (offline) {
+      setToast({ text: "Undo needs the service running", undo: false });
+      return;
+    }
+    try {
+      const { email, examples: total } = await api.undo();
+      if (!email) {
+        setToast({ text: "Nothing to undo", undo: false });
+        return;
+      }
+      setExamples(total);
+      setPending((n) => Math.max(0, n - 1));
+      const [page] = await Promise.all([api.emails(drawer), refreshSummary()]);
+      setEmails(page.items);
+      setToast({ text: "Change undone", undo: false });
+    } catch (e) {
+      setToast({ text: e instanceof ApiError ? e.message : "undo failed", undo: false });
+    }
+  }, [offline, drawer, refreshSummary]);
+
+  /**
+   * Opening a message marks it read, and that is not bookkeeping: the first
+   * unread -> read transition increments sender_stats.opened, the only signal that
+   * separates `automated` from `noise`. Reading your mail trains the system.
+   */
+  const open = useCallback(
+    (id: string) => {
+      setSelectedId(id);
+      setSheetOpen(true);
+      if (offline) return;
+      const email = emails.find((e) => e.id === id);
+      if (!email?.unread) return;
+      api
+        .markRead(id, false)
+        .then((updated) => {
+          setEmails((prev) => prev.map((e) => (e.id === id ? updated : e)));
+          setCounts((c) => ({ ...c, unread: Math.max(0, c.unread - 1) }));
+        })
+        .catch(() => {
+          /* Read state is not worth interrupting the user over. */
+        });
+    },
+    [emails, offline]
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -93,205 +219,208 @@ export default function Page() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const cambiarVista = useCallback(
-    (v: Vista) => {
-      setVista(v);
-      const lista = v === "unsure" ? dudosos : emails.filter((e) => e.bucket === v && !isUnsure(e));
-      setSelectedId(lista[0]?.id ?? null);
+  const changeDrawer = useCallback(
+    (d: Drawer) => {
+      setDrawer(d);
+      if (offline) {
+        const list = d === "unsure" ? EMAILS.filter(isUnsure) : EMAILS.filter((e) => e.bucket === d && !isUnsure(e));
+        setEmails(list);
+        setSelectedId(list[0]?.id ?? null);
+      }
     },
-    [emails, dudosos]
+    [offline]
   );
-
-  // Heuristic 1: system status always visible, including while it works.
-  const sincronizar = useCallback(() => {
-    setSync({ estado: "syncing", desde: 0 });
-    setTimeout(() => setSync({ estado: "idle", desde: 0 }), 1800);
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setModal(null);
-        setNavAbierta(false);
-        setHojaAbierta(false);
+        setNavOpen(false);
+        setSheetOpen(false);
         return;
       }
       if (modal) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        return deshacer();
+        void undo();
+        return;
       }
       if (e.key === "?") {
         e.preventDefault();
-        return setModal("ayuda");
+        return setModal("help");
       }
       if (e.key === "/") {
         e.preventDefault();
-        return setModal("buscar");
+        return setModal("search");
       }
       if (e.key === "j" || e.key === "k") {
-        const i = visibles.findIndex((x) => x.id === selectedId);
-        const n = e.key === "j" ? Math.min(i + 1, visibles.length - 1) : Math.max(i - 1, 0);
-        if (visibles[n]) setSelectedId(visibles[n].id);
+        const i = emails.findIndex((x) => x.id === selectedId);
+        const n = e.key === "j" ? Math.min(i + 1, emails.length - 1) : Math.max(i - 1, 0);
+        if (emails[n]) setSelectedId(emails[n].id);
         return;
       }
       const b = BUCKETS.find((x) => x.key === e.key);
-      if (b && selectedId) reclassify(selectedId, b.id);
+      if (b && selectedId) void reclassify(selectedId, b.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modal, visibles, selectedId, reclassify, deshacer]);
+  }, [modal, emails, selectedId, reclassify, undo]);
 
-  const hoy = useFechaHoy();
-  const nuevos = emails.filter((e) => e.unread).length;
+  const today = useToday();
 
   return (
-    // h-dvh, not h-screen: on mobile the browser bar eats the 100vh.
-    <div className="h-dvh overflow-hidden sm:p-3 lg:p-5">
-      <div
-        className="mx-auto flex h-full w-full max-w-[1680px] overflow-hidden sm:rounded-[26px] sm:shadow-shell"
-        style={{ background: "var(--shell)" }}
-      >
-        <Sidebar
-          dudosos={dudosos.length}
-          abierta={navAbierta}
-          onClose={() => setNavAbierta(false)}
-          onSearch={() => setModal("buscar")}
-          onSettings={() => setModal("ajustes")}
-          onHelp={() => setModal("ayuda")}
-        />
+    <ModelStatusProvider value={modelStatus}>
+      {/* h-dvh, not h-screen: on mobile the browser bar eats the 100vh. */}
+      <div className="h-dvh overflow-hidden sm:p-3 lg:p-5">
+        <div
+          className="mx-auto flex h-full w-full max-w-[1680px] overflow-hidden sm:rounded-[26px] sm:shadow-shell"
+          style={{ background: "var(--shell)" }}
+        >
+          <Sidebar
+            unsureCount={counts.unsure}
+            open={navOpen}
+            onClose={() => setNavOpen(false)}
+            onSearch={() => setModal("search")}
+            onSettings={() => setModal("settings")}
+            onHelp={() => setModal("help")}
+          />
 
-        <div className="flex min-w-0 flex-1 flex-col" style={{ background: "var(--surface)" }}>
-          <header className="flex h-[68px] shrink-0 items-center gap-2 px-4 sm:gap-4 sm:px-6 lg:h-[76px]">
-            <button
-              onClick={() => setNavAbierta(true)}
-              aria-label="Open navigation"
-              className="btn btn-raised grid h-9 w-9 shrink-0 place-items-center rounded-full border lg:hidden"
-              style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-2)" }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            <div className="min-w-0">
-              <h1 className="truncate text-[17px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[21px]">
-                Today's inbox
-              </h1>
-              <p className="truncate text-[11.5px] sm:text-[12px]" style={{ color: "var(--ink-3)" }}>
-                {hoy ? `${hoy} · ` : ""}
-                {nuevos} unread
-              </p>
-            </div>
-
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-col" style={{ background: "var(--surface)" }}>
+            <header className="flex h-[68px] shrink-0 items-center gap-2 px-4 sm:gap-4 sm:px-6 lg:h-[76px]">
               <button
-                onClick={sincronizar}
-                disabled={sync.estado === "syncing"}
-                className="btn btn-raised hidden items-center gap-2 rounded-full border px-3.5 py-2 text-[12px] hover:bg-[var(--surface)] lg:flex"
+                onClick={() => setNavOpen(true)}
+                aria-label="Open navigation"
+                className="btn btn-raised grid h-9 w-9 shrink-0 place-items-center rounded-full border lg:hidden"
                 style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-2)" }}
               >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+
+              <div className="min-w-0">
+                <h1 className="truncate text-[17px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[21px]">
+                  Today&apos;s inbox
+                </h1>
+                <p className="truncate text-[11.5px] sm:text-[12px]" style={{ color: "var(--ink-3)" }}>
+                  {today ? `${today} · ` : ""}
+                  {counts.unread} unread
+                </p>
+              </div>
+
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${sync.estado === "syncing" ? "animate-blink" : ""}`}
-                  style={{ background: sync.estado === "syncing" ? "var(--brand)" : "var(--ok)" }}
-                />
-                {sync.estado === "syncing"
-                  ? "Syncing…"
-                  : sync.desde === 0
-                    ? "Synced just now"
-                    : `Synced ${sync.desde} min`}
-              </button>
-
-              {pendientes > 0 && (
-                <button
-                  onClick={() => setModal("confirmar")}
-                  className="btn btn-dark rounded-full px-3 py-2 text-[12px] font-semibold sm:px-4"
-                  style={{ background: "var(--dark)", color: "#fff" }}
+                  className="hidden items-center gap-2 rounded-full border px-3.5 py-2 text-[12px] lg:flex"
+                  style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-2)" }}
+                  title={offline ? `${failure ?? "service unreachable"} · showing sample data` : API_URL}
                 >
-                  <span className="hidden sm:inline">Apply </span>
-                  {pendientes}
-                  <span className="hidden sm:inline"> {pendientes === 1 ? "label" : "labels"}</span>
-                  <span className="sm:hidden"> lbl</span>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${connection === "connecting" ? "animate-blink" : ""}`}
+                    style={{
+                      background:
+                        connection === "live" ? "var(--ok)" : connection === "offline" ? "var(--warn, #c2410c)" : "var(--brand)",
+                    }}
+                  />
+                  {connection === "live" ? "Connected" : connection === "offline" ? "Sample data" : "Connecting…"}
+                </span>
+
+                {pending > 0 && (
+                  <button
+                    onClick={() => setModal("confirm")}
+                    className="btn btn-dark rounded-full px-3 py-2 text-[12px] font-semibold sm:px-4"
+                    style={{ background: "var(--dark)", color: "#fff" }}
+                  >
+                    <span className="hidden sm:inline">Apply </span>
+                    {pending}
+                    <span className="hidden sm:inline"> {pending === 1 ? "label" : "labels"}</span>
+                    <span className="sm:hidden"> lbl</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setModal("search")}
+                  className="btn btn-raised hidden items-center gap-2 rounded-full border px-4 py-2.5 text-[12.5px] hover:bg-[var(--surface)] xl:flex"
+                  style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-3)" }}
+                >
+                  {MAGNIFIER}
+                  Search email
+                  <span className="ml-6 font-mono text-[11px]">/</span>
                 </button>
-              )}
 
-              <button
-                onClick={() => setModal("buscar")}
-                className="btn btn-raised hidden items-center gap-2 rounded-full border px-4 py-2.5 text-[12.5px] hover:bg-[var(--surface)] xl:flex"
-                style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-3)" }}
+                <span className="xl:hidden">
+                  <IconButton label="Search email" onClick={() => setModal("search")}>
+                    {MAGNIFIER}
+                  </IconButton>
+                </span>
+
+                <span className="hidden sm:inline">
+                  <IconButton label="Keyboard shortcuts" onClick={() => setModal("help")}>
+                    <span className="text-[13px] font-bold">?</span>
+                  </IconButton>
+                </span>
+              </div>
+            </header>
+
+            {offline && (
+              <div
+                className="mx-4 mb-3 rounded-xl px-3.5 py-2.5 text-[12px] sm:mx-6"
+                style={{ background: "var(--t-unsure-bg)", color: "var(--t-unsure-ink)" }}
               >
-                {LUPA}
-                Search email
-                <span className="ml-6 font-mono text-[11px]">/</span>
-              </button>
+                <strong>Showing sample data.</strong> The service at {API_URL} is not answering, so this is the
+                mock inbox. Start it with <code>dotnet run --project src\LocalMailAI.Api</code> and reload.
+              </div>
+            )}
 
-              <span className="xl:hidden">
-                <IconButton label="Search email" onClick={() => setModal("buscar")}>
-                  {LUPA}
-                </IconButton>
-              </span>
+            <BucketTiles counts={counts} drawer={drawer} onDrawer={changeDrawer} />
 
-              <span className="hidden sm:inline">
-                <IconButton label="Keyboard shortcuts" onClick={() => setModal("ayuda")}>
-                  <span className="text-[13px] font-bold">?</span>
-                </IconButton>
-              </span>
+            <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
+              <EmailList
+                emails={emails}
+                drawer={drawer}
+                selectedId={selectedId}
+                onSelect={open}
+                onReclassify={reclassify}
+                loading={loadingList}
+              />
+              <DetailPanel email={selected} onReclassify={reclassify} />
             </div>
-          </header>
-
-          <BucketTiles emails={emails} dudosos={dudosos.length} vista={vista} onVista={cambiarVista} />
-
-          <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
-            <EmailList
-              emails={visibles}
-              vista={vista}
-              selectedId={selectedId}
-              onSelect={(id) => {
-                setSelectedId(id);
-                setHojaAbierta(true);
-              }}
-              onReclasificar={reclassify}
-            />
-            <DetailPanel email={seleccionado} onReclasificar={reclassify} />
           </div>
         </div>
-      </div>
 
-      {/* Below xl the detail opens as a sheet; above it the side panel is already there. */}
-      {hojaAbierta && seleccionado && (
-        <DetailSheet email={seleccionado} onClose={() => setHojaAbierta(false)} onReclasificar={reclassify} />
-      )}
+        {/* Below xl the detail opens as a sheet; above it the side panel is already there. */}
+        {sheetOpen && selected && (
+          <DetailSheet email={selected} onClose={() => setSheetOpen(false)} onReclassify={reclassify} />
+        )}
 
-      {modal === "buscar" && (
-        <SearchOverlay
-          emails={emails}
-          onClose={() => setModal(null)}
-          onSelect={(id) => {
-            const e = emails.find((x) => x.id === id);
-            if (e) {
-              setVista(isUnsure(e) ? "unsure" : e.bucket);
+        {modal === "search" && (
+          <SearchOverlay
+            emails={emails}
+            onClose={() => setModal(null)}
+            onSelect={(id) => {
               setSelectedId(id);
-            }
-          }}
-        />
-      )}
+              setModal(null);
+            }}
+          />
+        )}
 
-      {modal === "ajustes" && <SettingsPanel examples={examples} onClose={() => setModal(null)} />}
-      {modal === "ayuda" && <HelpOverlay onClose={() => setModal(null)} />}
-      {modal === "confirmar" && (
-        <ConfirmDialog
-          n={pendientes}
-          onCancel={() => setModal(null)}
-          onConfirm={() => {
-            setToast({ texto: `${pendientes} labels written to IMAP`, undo: false });
-            setPendientes(0);
-            setModal(null);
-          }}
-        />
-      )}
+        {modal === "settings" && <SettingsPanel examples={examples} onClose={() => setModal(null)} />}
+        {modal === "help" && <HelpOverlay onClose={() => setModal(null)} />}
+        {modal === "confirm" && (
+          <ConfirmDialog
+            n={pending}
+            onCancel={() => setModal(null)}
+            onConfirm={() => {
+              // Milestone 10. /api/labels/apply does not exist yet, and claiming the
+              // write happened would be the one lie this product cannot afford.
+              setToast({ text: "IMAP write-back is not implemented yet", undo: false });
+              setModal(null);
+            }}
+          />
+        )}
 
-      {toast && <Toast texto={toast.texto} onUndo={toast.undo ? deshacer : undefined} />}
-    </div>
+        {toast && <Toast text={toast.text} onUndo={toast.undo ? undo : undefined} />}
+      </div>
+    </ModelStatusProvider>
   );
 }

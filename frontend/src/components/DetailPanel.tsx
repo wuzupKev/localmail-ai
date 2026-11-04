@@ -21,10 +21,10 @@ function Seccion({ titulo, extra, children }: { titulo: string; extra?: React.Re
 /** Body shared by the desktop side panel and the mobile sheet. */
 function Contenido({
   email,
-  onReclasificar,
+  onReclassify,
 }: {
   email: Email;
-  onReclasificar: (id: string, bucket: Email["bucket"]) => void;
+  onReclassify: (id: string, bucket: Email["bucket"]) => void;
 }) {
   const [resumen, setSummary] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -140,7 +140,7 @@ function Contenido({
           {BUCKETS.map((b) => (
             <button
               key={b.id}
-              onClick={() => onReclasificar(email.id, b.id)}
+              onClick={() => onReclassify(email.id, b.id)}
               disabled={b.id === email.bucket}
               className="btn btn-tint flex items-center justify-between rounded-xl px-3 py-2.5 text-[12px] font-semibold disabled:opacity-30"
               style={{ background: b.bg, color: b.ink }}
@@ -161,10 +161,10 @@ function Contenido({
 /** Side panel, only from xl up: below that it does not fit beside the list. */
 export function DetailPanel({
   email,
-  onReclasificar,
+  onReclassify,
 }: {
   email: Email | null;
-  onReclasificar: (id: string, bucket: Email["bucket"]) => void;
+  onReclassify: (id: string, bucket: Email["bucket"]) => void;
 }) {
   if (!email) {
     return (
@@ -184,7 +184,7 @@ export function DetailPanel({
       className="hidden w-[330px] shrink-0 flex-col overflow-y-auto rounded-2xl border shadow-card xl:flex"
       style={{ borderColor: "var(--line)", background: "var(--card)" }}
     >
-      <Contenido email={email} onReclasificar={onReclasificar} />
+      <Contenido email={email} onReclassify={onReclassify} />
     </aside>
   );
 }
@@ -196,11 +196,11 @@ export function DetailPanel({
 export function DetailSheet({
   email,
   onClose,
-  onReclasificar,
+  onReclassify,
 }: {
   email: Email;
   onClose: () => void;
-  onReclasificar: (id: string, bucket: Email["bucket"]) => void;
+  onReclassify: (id: string, bucket: Email["bucket"]) => void;
 }) {
   return (
     <div className="animate-fade fixed inset-0 z-50 flex flex-col xl:hidden" style={{ background: "var(--card)" }}>
@@ -218,7 +218,7 @@ export function DetailSheet({
         <span className="truncate text-[12.5px] font-bold">{email.from.name}</span>
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <Contenido email={email} onReclasificar={onReclasificar} />
+        <Contenido email={email} onReclassify={onReclassify} />
       </div>
     </div>
   );

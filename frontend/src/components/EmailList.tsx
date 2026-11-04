@@ -2,9 +2,9 @@
 
 import { BUCKETS, type Email } from "@/lib/mock";
 import { Avatar, BucketPill, Confidence, Kbd } from "./bits";
-import type { Vista } from "./Sidebar";
+import type { Drawer } from "@/lib/mock";
 
-const TITULOS: Record<Vista, string> = {
+const TITLES: Record<Drawer, string> = {
   reply: "Needs a reply",
   fyi: "FYI",
   automated: "Automated",
@@ -14,16 +14,19 @@ const TITULOS: Record<Vista, string> = {
 
 export function EmailList({
   emails,
-  vista,
+  drawer,
   selectedId,
   onSelect,
-  onReclasificar,
+  onReclassify,
+  loading = false,
 }: {
   emails: Email[];
-  vista: Vista;
+  drawer: Drawer;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onReclasificar: (id: string, bucket: Email["bucket"]) => void;
+  onReclassify: (id: string, bucket: Email["bucket"]) => void;
+  /** The drawer is being fetched. Distinct from an empty drawer, which is an answer. */
+  loading?: boolean;
 }) {
   return (
     <section
@@ -34,7 +37,7 @@ export function EmailList({
         className="flex h-[52px] shrink-0 items-center gap-3 border-b px-4 sm:px-5"
         style={{ borderColor: "var(--line-soft)" }}
       >
-        <h2 className="truncate text-[13.5px] font-bold">{TITULOS[vista]}</h2>
+        <h2 className="truncate text-[13.5px] font-bold">{TITLES[drawer]}</h2>
         <span
           className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
           style={{ background: "var(--surface)", color: "var(--ink-2)" }}
@@ -66,27 +69,34 @@ export function EmailList({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {emails.length === 0 && (
+        {loading && (
+          <div className="grid h-40 place-items-center text-[13px]" style={{ color: "var(--ink-3)" }}>
+            Loading…
+          </div>
+        )}
+
+        {!loading && emails.length === 0 && (
           <div className="grid h-40 place-items-center text-[13px]" style={{ color: "var(--ink-3)" }}>
             Nothing here.
           </div>
         )}
 
-        <ul role="listbox" aria-label={TITULOS[vista]}>
+        {!loading && (
+        <ul role="listbox" aria-label={TITLES[drawer]}>
           {emails.map((e) => {
-            const activo = e.id === selectedId;
+            const active = e.id === selectedId;
             return (
               <li key={e.id}>
                 <div
                   role="option"
-                  aria-selected={activo}
+                  aria-selected={active}
                   tabIndex={0}
                   onClick={() => onSelect(e.id)}
                   onKeyDown={(ev) => ev.key === "Enter" && onSelect(e.id)}
                   className="group relative flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-[var(--surface)] sm:px-5 lg:items-center lg:gap-4"
                   style={{
                     borderColor: "var(--line-soft)",
-                    background: activo ? "var(--brand-soft)" : undefined,
+                    background: active ? "var(--brand-soft)" : undefined,
                   }}
                 >
                   <Avatar name={e.from.name} bucket={e.bucket} />
@@ -168,7 +178,7 @@ export function EmailList({
                         key={b.id}
                         onClick={(ev) => {
                           ev.stopPropagation();
-                          onReclasificar(e.id, b.id);
+                          onReclassify(e.id, b.id);
                         }}
                         disabled={b.id === e.bucket}
                         title={`Move to ${b.label}`}
@@ -184,6 +194,7 @@ export function EmailList({
             );
           })}
         </ul>
+        )}
       </div>
     </section>
   );

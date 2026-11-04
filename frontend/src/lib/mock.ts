@@ -3,6 +3,9 @@
 
 export type Bucket = "reply" | "fyi" | "automated" | "noise";
 
+/** The five drawers the server partitions mail into: the four buckets plus `unsure`. */
+export type Drawer = Bucket | "unsure";
+
 export type BucketDef = { id: Bucket; label: string; short: string; bg: string; ink: string; key: string };
 
 export const BUCKETS: BucketDef[] = [

@@ -1,9 +1,8 @@
 "use client";
 
-import { MODEL_STATUS, isLearning, type Bucket } from "@/lib/mock";
+import { isLearning } from "@/lib/mock";
+import { useModelStatus } from "@/lib/model-status";
 import { Logo } from "./bits";
-
-export type Vista = Bucket | "unsure";
 
 type NavId = "bandeja" | "buscar" | "modelo" | "ayuda";
 
@@ -49,38 +48,39 @@ const ICONS: Record<NavId | "lock" | "aviso", React.ReactNode> = {
 };
 
 export function Sidebar({
-  dudosos,
-  abierta,
+  unsureCount,
+  open,
   onClose,
   onSearch,
   onSettings,
   onHelp,
 }: {
-  dudosos: number;
-  abierta: boolean;
+  unsureCount: number;
+  open: boolean;
   onClose: () => void;
   onSearch: () => void;
   onSettings: () => void;
   onHelp: () => void;
 }) {
-  const cerrarY = (fn?: () => void) => () => {
+  const closeAnd = (fn?: () => void) => () => {
     onClose();
     fn?.();
   };
 
-  const aprendiendo = isLearning(MODEL_STATUS);
+  const modelStatus = useModelStatus();
+  const learning = isLearning(modelStatus);
 
   const items: { id: NavId; label: string; onClick: () => void; active?: boolean }[] = [
-    { id: "bandeja", label: "Today's inbox", active: true, onClick: cerrarY() },
-    { id: "buscar", label: "Search", onClick: cerrarY(onSearch) },
-    { id: "modelo", label: "Model and data", onClick: cerrarY(onSettings) },
-    { id: "ayuda", label: "Shortcuts", onClick: cerrarY(onHelp) },
+    { id: "bandeja", label: "Today's inbox", active: true, onClick: closeAnd() },
+    { id: "buscar", label: "Search", onClick: closeAnd(onSearch) },
+    { id: "modelo", label: "Model and data", onClick: closeAnd(onSettings) },
+    { id: "ayuda", label: "Shortcuts", onClick: closeAnd(onHelp) },
   ];
 
   return (
     <>
       {/* Below lg the bar is a drawer: off-screen until it is asked for. */}
-      {abierta && (
+      {open && (
         <div
           className="animate-fade fixed inset-0 z-40 lg:hidden"
           style={{ background: "rgba(22,24,30,.45)" }}
@@ -91,7 +91,7 @@ export function Sidebar({
 
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-[252px] shrink-0 flex-col px-3 pt-5 pb-4 transition-transform duration-200 lg:static lg:z-auto lg:w-[236px] lg:translate-x-0 ${
-          abierta ? "translate-x-0" : "-translate-x-full"
+          open ? "translate-x-0" : "-translate-x-full"
         }`}
         style={{ background: "var(--nav)" }}
       >
@@ -122,7 +122,7 @@ export function Sidebar({
             * Lost capability, not a broken product: signal triage is still running.
             * Degrading well is fine; degrading silently is not.
             */}
-          {!MODEL_STATUS.embeddingsAvailable && (
+          {!modelStatus.embeddingsAvailable && (
             <div
               className="mt-5 shrink-0 rounded-2xl border p-3.5"
               style={{ borderColor: "rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)" }}
@@ -130,11 +130,11 @@ export function Sidebar({
               <div className="flex items-center gap-1.5">
                 <span style={{ color: "#f5c451" }}>{ICONS.aviso}</span>
                 <span className="text-[11.5px] font-bold" style={{ color: "#fff" }}>
-                  Search model ausente
+                  Search model missing
                 </span>
               </div>
               <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--nav-ink)" }}>
-                {MODEL_STATUS.embeddingsMissingReason}
+                {modelStatus.embeddingsMissingReason}
               </p>
               <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--nav-ink)", opacity: 0.8 }}>
                 No semantic search. Signal-based triage still works.
@@ -142,14 +142,14 @@ export function Sidebar({
             </div>
           )}
 
-          {dudosos > 0 && (
+          {unsureCount > 0 && (
             <div
               className="mt-5 shrink-0 rounded-2xl border p-3.5"
               style={{ borderColor: "rgba(234,179,8,.25)", background: "rgba(234,179,8,.12)" }}
             >
               <div className="flex items-baseline gap-2">
                 <span className="text-[22px] font-extrabold leading-none tabular-nums" style={{ color: "#f5c451" }}>
-                  {dudosos}
+                  {unsureCount}
                 </span>
                 <span className="text-[11.5px] font-semibold" style={{ color: "#f5c451" }}>
                   unsorted
@@ -157,7 +157,7 @@ export function Sidebar({
               </div>
               {/* "I do not know you yet" and "this message is ambiguous" are not the same. */}
               <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "#f5c451", opacity: 0.75 }}>
-                {aprendiendo
+                {learning
                   ? "I don't know you yet. Correct a few and I'll learn."
                   : "Correct these: they teach the model the most."}
               </p>
@@ -177,11 +177,11 @@ export function Sidebar({
 
             <dl className="mt-3 space-y-1.5">
               {[
-                ["Examples", MODEL_STATUS.examples.toLocaleString("en-US")],
+                ["Examples", modelStatus.examples.toLocaleString("en-US")],
                 // null = not measured yet (the evaluation set is missing). Inventing a number here
                 // would be lying in the user's own sidebar.
-                ["Accuracy", MODEL_STATUS.precision === null ? "not measured" : `${Math.round(MODEL_STATUS.precision * 100)}%`],
-                ["Indexed", MODEL_STATUS.indexedEmails.toLocaleString("en-US")],
+                ["Accuracy", modelStatus.precision === null ? "not measured" : `${Math.round(modelStatus.precision * 100)}%`],
+                ["Indexed", modelStatus.indexedEmails.toLocaleString("en-US")],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-baseline justify-between gap-2">
                   <dt className="text-[11px]" style={{ color: "rgba(255,255,255,.45)" }}>
@@ -198,7 +198,7 @@ export function Sidebar({
             </dl>
 
             <button
-              onClick={cerrarY(onSettings)}
+              onClick={closeAnd(onSettings)}
               className="btn btn-raised mt-3.5 w-full rounded-lg py-2 text-[11.5px] font-semibold"
               style={{ background: "#fff", color: "var(--nav)" }}
             >
