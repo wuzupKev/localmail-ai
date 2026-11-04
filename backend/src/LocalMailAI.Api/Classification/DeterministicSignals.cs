@@ -118,7 +118,7 @@ public sealed record SignalContext
 
     /// <summary>
     /// Consecutive messages from the sender in this thread with no reply from the user.
-    /// Three or more is the "Tercer mensaje sin respuesta tuya" signal.
+    /// Three or more is the "Third message with no reply from you" signal.
     /// </summary>
     public int ConsecutiveUnanswered { get; init; }
 
@@ -165,19 +165,19 @@ public static partial class DeterministicSignals
 
         if (ctx.SenderReplied > 0)
         {
-            signals.Add(new(SignalKind.RepliedBefore, $"Le has respondido {ctx.SenderReplied} veces", 3));
+            signals.Add(new(SignalKind.RepliedBefore, $"You have replied {ctx.SenderReplied} times", 3));
         }
         else if (ctx.SenderReceived == 0)
         {
             // Unknown sender: neither good nor bad evidence, just missing data. Hence
             // neutral, and it also lowers confidence in SignalBaseline.
-            signals.Add(new(SignalKind.NewSender, "Remitente nuevo, sin historial", 0));
+            signals.Add(new(SignalKind.NewSender, "New sender, no history", 0));
         }
         else if (ctx.SenderReceived >= 5)
         {
             // With few messages received, "you never replied" says nothing: there may
             // simply never have been an occasion.
-            signals.Add(new(SignalKind.NeverReplied, $"Nunca lo has respondido (0 de {ctx.SenderReceived})", -2));
+            signals.Add(new(SignalKind.NeverReplied, $"You have never replied (0 of {ctx.SenderReceived})", -2));
         }
 
         // --- How you were addressed ------------------------------------------------
@@ -187,30 +187,30 @@ public static partial class DeterministicSignals
 
         if (inTo && !inCc)
         {
-            signals.Add(new(SignalKind.ToNotCc, "Vas en Para:, no en Cc:", 2));
+            signals.Add(new(SignalKind.ToNotCc, "You are on To:, not Cc:", 2));
         }
         else if (inCc && !inTo)
         {
-            signals.Add(new(SignalKind.CcNotTo, "Vas en Cc:, no en Para:", -2));
+            signals.Add(new(SignalKind.CcNotTo, "You are on Cc:, not To:", -2));
         }
 
         // --- Thread state ----------------------------------------------------------
 
         if (ctx.IParticipatesInThread)
         {
-            signals.Add(new(SignalKind.ThreadParticipant, "Hilo en el que ya participas", 2));
+            signals.Add(new(SignalKind.ThreadParticipant, "A thread you are already in", 2));
         }
 
         if (ctx.ConsecutiveUnanswered >= 3)
         {
-            signals.Add(new(SignalKind.ThirdUnanswered, "Tercer mensaje sin respuesta tuya", 3));
+            signals.Add(new(SignalKind.ThirdUnanswered, "Third message with no reply from you", 3));
         }
 
         // --- Content ---------------------------------------------------------------
 
         if (AsksAtTheEnd(ctx.CleanBody))
         {
-            signals.Add(new(SignalKind.EndsWithQuestion, "Termina en pregunta directa", 1));
+            signals.Add(new(SignalKind.EndsWithQuestion, "Ends with a direct question", 1));
         }
 
         // Weight -2: pushes away from "responder" exactly as hard as "you are in To:"
@@ -218,30 +218,30 @@ public static partial class DeterministicSignals
         // is a tie, and a tie has to come out with low confidence, not high.
         if (NoActionRequired().IsMatch(ctx.CleanBody))
         {
-            signals.Add(new(SignalKind.ExplicitlyNoAction, "Dice explicitamente: no requiere accion", -2));
+            signals.Add(new(SignalKind.ExplicitlyNoAction, "Says plainly: no action needed", -2));
         }
 
         if (AcknowledgementOfReceipt().IsMatch(ctx.CleanBody))
         {
-            signals.Add(new(SignalKind.Acknowledgement, "Acuse de recibo: no espera respuesta", -2));
+            signals.Add(new(SignalKind.Acknowledgement, "Acknowledgement of receipt: no reply expected", -2));
         }
 
         if (ctx.OrgDomain is { Length: > 0 } domain &&
             facts.FromEmail.EndsWith("@" + domain, StringComparison.OrdinalIgnoreCase))
         {
-            signals.Add(new(SignalKind.SameOrgDomain, "Mismo dominio que tu organizacion", 1));
+            signals.Add(new(SignalKind.SameOrgDomain, "Same domain as your organisation", 1));
         }
 
         // --- Bulk and machine markers ----------------------------------------------
 
         if (facts.HasListUnsubscribe)
         {
-            signals.Add(new(SignalKind.ListUnsubscribe, "List-Unsubscribe presente", -3));
+            signals.Add(new(SignalKind.ListUnsubscribe, "List-Unsubscribe present", -3));
         }
 
         if (facts.IsNoReplyAddress)
         {
-            signals.Add(new(SignalKind.NoReplyAddress, "Direccion no-reply", -2));
+            signals.Add(new(SignalKind.NoReplyAddress, "A no-reply address", -2));
         }
 
         if (facts.IsAutoSubmitted)
@@ -253,7 +253,7 @@ public static partial class DeterministicSignals
 
         if (facts.SpfPass == true && facts.DkimPass == true)
         {
-            signals.Add(new(SignalKind.Authenticated, "Remitente verificado (DKIM + SPF)", 1));
+            signals.Add(new(SignalKind.Authenticated, "Verified sender (DKIM + SPF)", 1));
         }
 
         // §6: at most 6, ordered by descending absolute weight. OrderByDescending is

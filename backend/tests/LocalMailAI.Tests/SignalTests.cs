@@ -213,9 +213,9 @@ public class SignalTests
     [Fact]
     public void A_message_from_a_known_contact_asking_a_question_needs_a_reply()
     {
-        // mock.ts e1: responder, 0.94, with "Le has respondido 12 veces",
-        // "Vas en Para:, no en Cc:", "Termina en pregunta directa",
-        // "Hilo en el que ya participas".
+        // mock.ts e1: responder, 0.94, with "You have replied 12 times",
+        // "You are on To:, not Cc:", "Ends with a direct question",
+        // "A thread you are already in".
         var f = Facts(
             """
             From: Ana Molina <ana.molina@estudiolegal.es>
@@ -241,7 +241,7 @@ public class SignalTests
 
         Assert.Equal(Bucket.Responder, c.Bucket);
         Assert.True(c.Confidence > SignalBaseline.ConfidenceThreshold);
-        Assert.Contains(signals, s => s.Kind == SignalKind.RepliedBefore && s.Label == "Le has respondido 12 veces");
+        Assert.Contains(signals, s => s.Kind == SignalKind.RepliedBefore && s.Label == "You have replied 12 times");
         Assert.Contains(signals, s => s.Kind == SignalKind.ToNotCc);
         Assert.Contains(signals, s => s.Kind == SignalKind.EndsWithQuestion);
         Assert.Contains(signals, s => s.Kind == SignalKind.ThreadParticipant);
@@ -341,7 +341,7 @@ public class SignalTests
     [Fact]
     public void Being_in_Cc_is_a_negative_signal()
     {
-        // mock.ts e6: informativo, with "Vas en Cc:, no en Para:" as negative.
+        // mock.ts e6: informativo, with "You are on Cc:, not To:" as negative.
         var f = Facts(
             """
             From: Marta Ruiz <marta.ruiz@universidadsur.edu>
@@ -364,7 +364,7 @@ public class SignalTests
     [Fact]
     public void A_third_unanswered_message_carries_the_maximum_weight()
     {
-        // mock.ts e16: responder, 0.95, "Tercer mensaje sin respuesta tuya".
+        // mock.ts e16: responder, 0.95, "Third message with no reply from you".
         var f = Facts(
             """
             From: Pablo Esteban <pablo.esteban@clientemayor.com>

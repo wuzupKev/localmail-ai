@@ -103,8 +103,8 @@ public sealed class IngestionTests : IDisposable
         Assert.Null(email.Extracted);
         Assert.Null(email.Summary);
 
-        Assert.Contains(email.Signals, s => s.Label == "Vas en Para:, no en Cc:" && s.Sign == "pos");
-        Assert.Contains(email.Signals, s => s.Label == "Remitente verificado (DKIM + SPF)");
+        Assert.Contains(email.Signals, s => s.Label == "You are on To:, not Cc:" && s.Sign == "pos");
+        Assert.Contains(email.Signals, s => s.Label == "Verified sender (DKIM + SPF)");
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public sealed class IngestionTests : IDisposable
     public async Task The_thread_counts_its_messages_and_detects_insistence()
     {
         // Three consecutive messages from the same sender with no reply: §6 calls this
-        // "Tercer mensaje sin respuesta tuya" and it carries the heaviest weight.
+        // "Third message with no reply from you" and it carries the heaviest weight.
         for (var i = 1; i <= 3; i++)
         {
             await Ingest(
@@ -160,7 +160,7 @@ public sealed class IngestionTests : IDisposable
         var last = page.Items[0];
 
         Assert.Equal(3, last.ThreadCount);
-        Assert.Contains(last.Signals, s => s.Label == "Tercer mensaje sin respuesta tuya");
+        Assert.Contains(last.Signals, s => s.Label == "Third message with no reply from you");
         Assert.Equal("responder", last.Bucket);
     }
 
@@ -190,7 +190,7 @@ public sealed class IngestionTests : IDisposable
         Assert.DoesNotContain("color:red", string.Join(' ', email.Body));
         Assert.Contains("Descubre las herramientas", string.Join(' ', email.Body));
         Assert.NotEqual("responder", email.Bucket);
-        Assert.Contains(email.Signals, s => s.Label == "List-Unsubscribe presente" && s.Sign == "neg");
+        Assert.Contains(email.Signals, s => s.Label == "List-Unsubscribe present" && s.Sign == "neg");
     }
 
     [Fact]
@@ -718,7 +718,7 @@ public sealed class IngestionTests : IDisposable
         var r = await _corrections.ApplyAsync(id, Bucket.Responder, Now);
 
         Assert.Equal(signalsBefore, r!.Email!.Signals.Length);
-        Assert.Contains(r.Email.Signals, x => x.Label == "List-Unsubscribe presente");
+        Assert.Contains(r.Email.Signals, x => x.Label == "List-Unsubscribe present");
     }
 
     [Fact]

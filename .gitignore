@@ -1,9 +1,9 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 #
-# Monorepo: frontend/ (Next.js) y backend/ (.NET) conviven aqui. Las reglas van sin
-# anclar a la raiz para que valgan en los dos y en video/film/, que tambien es npm.
+# Monorepo: frontend/ (Next.js) and backend/ (.NET) live side by side here. The rules
+# are deliberately not anchored to the root, so they apply inside both.
 
-# dependencias
+# dependencies
 node_modules/
 .pnp
 .pnp.*
@@ -17,7 +17,7 @@ node_modules/
 .next/
 out/
 
-# produccion
+# production
 build/
 
 # testing
@@ -33,7 +33,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# variables de entorno. frontend/.env.local lleva NEXT_PUBLIC_API_URL
+# environment. frontend/.env.local carries NEXT_PUBLIC_API_URL
 .env*
 
 # vercel
@@ -43,19 +43,19 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# salida de compilacion .NET (backend/). Ademas evita que Tailwind escanee DLLs bloqueadas
+# .NET build output (backend/). Also keeps Tailwind from scanning locked DLLs
 [Bb]in/
 [Oo]bj/
 *.user
 
-# base de datos local del backend, si alguien la crea dentro del repo en vez de
-# en %LOCALAPPDATA%/LocalMailAI/
+# the backend's local database, if anyone creates it inside the repository instead
+# of in %LOCALAPPDATA%/LocalMailAI/
 *.db
 *.db-shm
 *.db-wal
 
-# Material de trabajo que no forma parte del producto publicado. Vive en local:
-# la pelicula de lanzamiento, la guia de instalacion larga y las capturas.
+# Working material that is not part of the published product. It stays local:
+# the launch film, the long install guide and the screenshots.
 video/
 docs/
 capture/
