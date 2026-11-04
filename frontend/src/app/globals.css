@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
-/* Limita el escaneo de clases a src/. Sin esto Tailwind recorre tambien la carpeta
-   backend y revienta contra las DLL bloqueadas de .NET, dejando de recompilar el CSS. */
+/* Limits class scanning to src/. Without this Tailwind also walks the
+   backend and blows up on .NET's locked DLLs, silently stopping CSS rebuilds. */
 @source "../**/*.{ts,tsx}";
 
 :root {
-  /* Fondo de pagina gris suave, shell blanco flotando encima. */
+  /* Soft grey page background, white shell floating on top. */
   --page: #eceef2;
   --shell: #ffffff;
   --surface: #f6f7f9;
@@ -22,22 +22,22 @@
   --brand-soft: #f1ebff;
   --dark: #1d1138;
 
-  /* Un pastel por bucket. El color solo aparece donde significa algo. */
-  --t-responder-bg: #ffe2f0;
-  --t-responder-ink: #b01576;
+  /* One pastel per bucket. Colour only appears where it means something. */
+  --t-reply-bg: #ffe2f0;
+  --t-reply-ink: #b01576;
   --t-info-bg: #e8e3ff;
   --t-info-ink: #5a33df;
   --t-auto-bg: #dce9ff;
   --t-auto-ink: #1d4ed8;
-  --t-ruido-bg: #e8eaef;
-  --t-ruido-ink: #5a606d;
-  --t-duda-bg: #ffefd2;
-  --t-duda-ink: #9a5a00;
+  --t-noise-bg: #e8eaef;
+  --t-noise-ink: #5a606d;
+  --t-unsure-bg: #ffefd2;
+  --t-unsure-ink: #9a5a00;
 
   --ok: #11a05e;
 
-  /* Barra lateral oscura: deja que el logo oficial se vea tal cual, con su glow,
-     sin recolorear el wordmark ni pegarle una placa negra debajo. */
+  /* Dark sidebar: lets the official logo show as it is, glow included,
+     without recolouring the wordmark or slapping a black plate behind it. */
   --nav: #2a1750;
   --nav-ink: rgba(255, 255, 255, 0.6);
   --nav-hover: rgba(255, 255, 255, 0.07);
@@ -75,8 +75,8 @@ body {
 }
 
 /*
- * Botones con cuerpo: borde que los recorta del fondo, luz interior arriba, sombra de apoyo
- * abajo, y al pulsar se hunden (la sombra pasa a interior y el botón baja un píxel).
+ * Buttons with body: a border cutting them from the background, inner light above, a resting
+ * shadow below, and on press they sink (the shadow turns inset and the button drops a pixel).
  */
 .btn {
   transition:
@@ -91,9 +91,9 @@ body {
 }
 
 /*
- * El relieve lo da un "labio" solido de 2 px bajo el boton, no un degradado.
- * Al pulsar, el boton baja esos 2 px, el labio desaparece y la sombra pasa a interior:
- * el recorrido es el mismo que el de una tecla real.
+ * The relief comes from a solid 2 px "lip" under the button, not a gradient.
+ * On press the button drops those 2 px, the lip disappears and the shadow turns inset:
+ * the travel is the same as a real key's.
  */
 .btn-raised {
   box-shadow:
@@ -112,7 +112,7 @@ body {
   box-shadow: inset 0 2px 5px rgba(16, 18, 27, 0.16);
 }
 
-/* El labio hereda el color del texto del propio bucket, asi cada pastel tiene el suyo. */
+/* The lip inherits each bucket's own text colour, so every pastel gets its own. */
 .btn-tint {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
@@ -147,7 +147,7 @@ body {
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55);
 }
 
-/* Botón sobre superficie oscura (el "Deshacer" del toast). */
+/* Button on a dark surface (the toast's "Undo"). */
 .btn-soft-dark {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
@@ -158,7 +158,7 @@ body {
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45);
 }
 
-/* Heurística 7: foco siempre visible para quien navega con teclado. */
+/* Heuristic 7: focus always visible for anyone navigating by keyboard. */
 :where(button, a, input, [role="option"], [tabindex]):focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;

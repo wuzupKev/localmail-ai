@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ESTADO_MODELO, type Email } from "@/lib/mock";
+import { MODEL_STATUS, type Email } from "@/lib/mock";
 import { Avatar, Kbd } from "./bits";
 
-/** Busqueda hibrida simulada: coincidencia exacta (BM25) + "semantica" por palabras. */
+/** Simulated hybrid search: exact match (BM25) + "semantic" matching over words. */
 export function SearchOverlay({
   emails,
   onClose,
@@ -107,22 +107,22 @@ export function SearchOverlay({
 }
 
 export function SettingsPanel({ examples, onClose }: { examples: number; onClose: () => void }) {
-  const { examplesBySource: src } = ESTADO_MODELO;
+  const { examplesBySource: src } = MODEL_STATUS;
   const filas: [string, string][] = [
-    ["Language model", ESTADO_MODELO.ollamaAvailable ? ESTADO_MODELO.slm : `${ESTADO_MODELO.slm} (unavailable)`],
+    ["Language model", MODEL_STATUS.ollamaAvailable ? MODEL_STATUS.slm : `${MODEL_STATUS.slm} (unavailable)`],
     ["Classifier examples", `${examples}`],
     ["· corrected by you", `${src.user}`],
     ["· from your Sent folder", `${src.bootstrapSent}`],
     ["· from your folders", `${src.bootstrapFolder}`],
-    // null no es 0: significa que aún no hay set de evaluación contra el que medir.
-    ["Measured accuracy", ESTADO_MODELO.precision === null ? "not measured yet" : `${Math.round(ESTADO_MODELO.precision * 100)}%`],
-    ["Last trained", ESTADO_MODELO.lastTrained ?? "never"],
-    ["Emails indexed", ESTADO_MODELO.indexedEmails.toLocaleString("en-US")],
+    // null is not 0: it means there is no evaluation set to measure against yet.
+    ["Measured accuracy", MODEL_STATUS.precision === null ? "not measured yet" : `${Math.round(MODEL_STATUS.precision * 100)}%`],
+    ["Last trained", MODEL_STATUS.lastTrained ?? "never"],
+    ["Emails indexed", MODEL_STATUS.indexedEmails.toLocaleString("en-US")],
     [
       "Search model",
-      ESTADO_MODELO.embeddingsAvailable
-        ? ESTADO_MODELO.embeddings
-        : (ESTADO_MODELO.embeddingsMissingReason ?? "unavailable"),
+      MODEL_STATUS.embeddingsAvailable
+        ? MODEL_STATUS.embeddings
+        : (MODEL_STATUS.embeddingsMissingReason ?? "unavailable"),
     ],
   ];
 
@@ -171,7 +171,7 @@ export function SettingsPanel({ examples, onClose }: { examples: number; onClose
           </button>
           <button
             className="btn btn-tint flex-1 rounded-xl py-2.5 text-[12.5px] font-semibold"
-            style={{ background: "var(--t-responder-bg)", color: "var(--t-responder-ink)" }}
+            style={{ background: "var(--t-reply-bg)", color: "var(--t-reply-ink)" }}
           >
             Reset model
           </button>
@@ -181,7 +181,7 @@ export function SettingsPanel({ examples, onClose }: { examples: number; onClose
   );
 }
 
-/** Heurística 3 y 9: toda acción se puede deshacer, y el camino de vuelta está a la vista. */
+/** Heuristics 3 and 9: every action can be undone, and the way back is in plain sight. */
 export function Toast({ texto, onUndo }: { texto: string; onUndo?: () => void }) {
   return (
     <div
@@ -214,7 +214,7 @@ const ATAJOS: [string, string][] = [
   ["Esc", "Close"],
 ];
 
-/** Heurísticas 6 y 10: los atajos se reconocen, no se memorizan. */
+/** Heuristics 6 and 10: shortcuts are recognised, not memorised. */
 export function HelpOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div
@@ -257,7 +257,7 @@ export function HelpOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Heurística 5: nada se escribe en el servidor de correo sin una confirmación explícita. */
+/** Heuristic 5: nothing is written to the mail server without explicit confirmation. */
 export function ConfirmDialog({
   n,
   onConfirm,

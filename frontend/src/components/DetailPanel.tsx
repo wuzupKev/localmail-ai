@@ -18,7 +18,7 @@ function Seccion({ titulo, extra, children }: { titulo: string; extra?: React.Re
   );
 }
 
-/** Cuerpo compartido por el panel lateral de escritorio y la hoja de móvil. */
+/** Body shared by the desktop side panel and the mobile sheet. */
 function Contenido({
   email,
   onReclasificar,
@@ -30,7 +30,7 @@ function Contenido({
   const [cargando, setCargando] = useState(false);
   const bajaConfidence = email.confidence < 0.55;
 
-  // Latencia falsa que imita el prefill de un SLM en CPU: el front debe estar diseñado para que tarde.
+  // Fake latency imitating an SLM prefill on CPU: the front must be designed for it to be slow.
   const pedirSummary = () => {
     setCargando(true);
     setTimeout(() => {
@@ -63,7 +63,7 @@ function Contenido({
       {bajaConfidence && (
         <div
           className="mx-5 mb-4 rounded-xl px-3.5 py-3 text-[12px] leading-snug"
-          style={{ background: "var(--t-duda-bg)", color: "var(--t-duda-ink)" }}
+          style={{ background: "var(--t-unsure-bg)", color: "var(--t-unsure-ink)" }}
         >
           <strong className="font-bold">Not sure.</strong> Correct it below.
         </div>
@@ -71,12 +71,12 @@ function Contenido({
 
       {email.extracted && (
         <Seccion titulo="What they want">
-          <p className="text-[13px] font-medium leading-snug">{email.extracted.accion}</p>
+          <p className="text-[13px] font-medium leading-snug">{email.extracted.action}</p>
           <div className="mt-2 flex items-center gap-2">
-            <UrgencyPill urgencia={email.extracted.urgencia} />
-            {email.extracted.fechaLimite && (
+            <UrgencyPill urgency={email.extracted.urgency} />
+            {email.extracted.dueDate && (
               <span className="font-mono text-[11px]" style={{ color: "var(--ink-3)" }}>
-                due {email.extracted.fechaLimite}
+                due {email.extracted.dueDate}
               </span>
             )}
           </div>
@@ -158,7 +158,7 @@ function Contenido({
   );
 }
 
-/** Panel lateral, solo a partir de xl: por debajo no cabe junto a la lista. */
+/** Side panel, only from xl up: below that it does not fit beside the list. */
 export function DetailPanel({
   email,
   onReclasificar,
@@ -190,8 +190,8 @@ export function DetailPanel({
 }
 
 /**
- * Por debajo de xl el detalle se abre como hoja a pantalla completa: en móvil no hay sitio
- * para dos columnas, y el "por qué" es justo lo que no puede perderse por falta de ancho.
+ * Below xl the detail opens as a full-screen sheet: on mobile there is no room
+ * for two columns, and the "why" is exactly what must not be lost to a lack of width.
  */
 export function DetailSheet({
   email,

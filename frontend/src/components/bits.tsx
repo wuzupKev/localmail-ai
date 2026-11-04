@@ -4,9 +4,9 @@ import Image from "next/image";
 import { BUCKETS, type Bucket, type Signal } from "@/lib/mock";
 
 /**
- * Logo oficial sin tocar un solo color. Lo único que se le ha hecho es recortar el fondo
- * por inundación desde los bordes, para no comerse los contornos negros del diseño.
- * Va sobre la barra lateral oscura, que es donde esta marca está pensada para vivir.
+ * The official logo with not one colour touched. The only change is flood-filling the
+ * background away from the edges, so the design's black outlines are not eaten.
+ * It sits on the dark sidebar, which is where this mark is meant to live.
  */
 export function Logo() {
   return (
@@ -32,7 +32,7 @@ export function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Inicial del remitente en lugar de avatar falso: mismo peso visual, sin inventar personas. */
+/** The sender's initial instead of a fake avatar: same visual weight, no invented people. */
 export function Avatar({ name, bucket }: { name: string; bucket: Bucket }) {
   const b = BUCKETS.find((x) => x.id === bucket)!;
   const initials = name
@@ -82,7 +82,7 @@ export function BucketPill({ bucket }: { bucket: Bucket }) {
   );
 }
 
-/** Las senales van en texto plano con un signo: son datos, no decoracion. */
+/** Signals are plain text with a sign: they are data, not decoration. */
 export function SignalRow({ signal }: { signal: Signal }) {
   const ink = signal.sign === "pos" ? "var(--ok)" : signal.sign === "neg" ? "var(--t-auto-ink)" : "var(--ink-3)";
   const glyph = signal.sign === "pos" ? "+" : signal.sign === "neg" ? "−" : "~";
@@ -107,12 +107,12 @@ export function Confidence({ value, wide = false }: { value: number; wide?: bool
       >
         <div
           className="h-full rounded-full transition-all duration-300"
-          style={{ width: `${pct}%`, background: low ? "var(--t-duda-ink)" : "var(--brand)" }}
+          style={{ width: `${pct}%`, background: low ? "var(--t-unsure-ink)" : "var(--brand)" }}
         />
       </div>
       <span
         className="font-mono text-[11px] font-medium tabular-nums"
-        style={{ color: low ? "var(--t-duda-ink)" : "var(--ink-3)" }}
+        style={{ color: low ? "var(--t-unsure-ink)" : "var(--ink-3)" }}
       >
         {pct}%
       </span>
@@ -120,12 +120,12 @@ export function Confidence({ value, wide = false }: { value: number; wide?: bool
   );
 }
 
-export function UrgencyPill({ urgencia }: { urgencia: "alta" | "media" | "baja" }) {
+export function UrgencyPill({ urgency }: { urgency: "high" | "medium" | "low" }) {
   const map = {
-    alta: { bg: "var(--t-responder-bg)", ink: "var(--t-responder-ink)", l: "Urgent" },
-    media: { bg: "var(--t-info-bg)", ink: "var(--t-info-ink)", l: "Medium" },
-    baja: { bg: "var(--t-ruido-bg)", ink: "var(--t-ruido-ink)", l: "Low" },
-  }[urgencia];
+    high: { bg: "var(--t-reply-bg)", ink: "var(--t-reply-ink)", l: "Urgent" },
+    medium: { bg: "var(--t-info-bg)", ink: "var(--t-info-ink)", l: "Medium" },
+    low: { bg: "var(--t-noise-bg)", ink: "var(--t-noise-ink)", l: "Low" },
+  }[urgency];
   return (
     <Pill bg={map.bg} ink={map.ink}>
       {map.l}

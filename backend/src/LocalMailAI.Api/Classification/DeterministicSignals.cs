@@ -11,30 +11,30 @@ namespace LocalMailAI.Api.Classification;
 /// <summary>Triage bucket. Same four values as <c>Bucket</c> in src/lib/mock.ts.</summary>
 public enum Bucket
 {
-    Responder,
-    Informativo,
-    Automatizado,
-    Ruido,
+    Reply,
+    Fyi,
+    Automated,
+    Noise,
 }
 
 public static class BucketNames
 {
-    /// <summary>The frontend expects these exact strings, lowercase and in Spanish.</summary>
+    /// <summary>The frontend expects these exact strings, lowercase.</summary>
     public static string ToWire(this Bucket b) => b switch
     {
-        Bucket.Responder => "responder",
-        Bucket.Informativo => "informativo",
-        Bucket.Automatizado => "automatizado",
-        Bucket.Ruido => "ruido",
+        Bucket.Reply => "reply",
+        Bucket.Fyi => "fyi",
+        Bucket.Automated => "automated",
+        Bucket.Noise => "noise",
         _ => throw new ArgumentOutOfRangeException(nameof(b), b, null),
     };
 
     public static Bucket Parse(string value) => value switch
     {
-        "responder" => Bucket.Responder,
-        "informativo" => Bucket.Informativo,
-        "automatizado" => Bucket.Automatizado,
-        "ruido" => Bucket.Ruido,
+        "reply" => Bucket.Reply,
+        "fyi" => Bucket.Fyi,
+        "automated" => Bucket.Automated,
+        "noise" => Bucket.Noise,
         _ => throw new ArgumentException($"unknown bucket: {value}", nameof(value)),
     };
 }
@@ -103,7 +103,7 @@ public sealed record SignalContext
 
     /// <summary>
     /// Times the user has opened mail from this sender (sender_stats.opened).
-    /// This is what separates "automatizado" from "ruido": both are machines, but one
+    /// This is what separates "automated" from "noise": both are machines, but one
     /// gets read and the other does not.
     /// </summary>
     public int SenderOpened { get; init; }
@@ -213,7 +213,7 @@ public static partial class DeterministicSignals
             signals.Add(new(SignalKind.EndsWithQuestion, "Ends with a direct question", 1));
         }
 
-        // Weight -2: pushes away from "responder" exactly as hard as "you are in To:"
+        // Weight -2: pushes away from "reply" exactly as hard as "you are in To:"
         // pulls towards it. A message addressed to you that says no action is required
         // is a tie, and a tie has to come out with low confidence, not high.
         if (NoActionRequired().IsMatch(ctx.CleanBody))

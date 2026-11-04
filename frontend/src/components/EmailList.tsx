@@ -5,11 +5,11 @@ import { Avatar, BucketPill, Confidence, Kbd } from "./bits";
 import type { Vista } from "./Sidebar";
 
 const TITULOS: Record<Vista, string> = {
-  responder: "Needs a reply",
-  informativo: "FYI",
-  automatizado: "Automated",
-  ruido: "Noise",
-  duda: "Not sure",
+  reply: "Needs a reply",
+  fyi: "FYI",
+  automated: "Automated",
+  noise: "Noise",
+  unsure: "Not sure",
 };
 
 export function EmailList({
@@ -41,7 +41,7 @@ export function EmailList({
         >
           {emails.length}
         </span>
-        {/* Los atajos solo se anuncian donde hay teclado. */}
+        {/* Shortcuts are only announced where there is a keyboard. */}
         <div className="ml-auto hidden items-center gap-1.5 text-[11px] lg:flex" style={{ color: "var(--ink-3)" }}>
           <Kbd>j</Kbd>
           <Kbd>k</Kbd>
@@ -52,7 +52,7 @@ export function EmailList({
         </div>
       </header>
 
-      {/* Cabecera de tabla: da densidad de datos, pero solo cuando hay ancho para columnas. */}
+      {/* Table header: it gives data density, but only when there is width for columns. */}
       <div
         className="hidden shrink-0 items-center gap-4 border-b px-5 py-2 text-[10px] font-bold uppercase tracking-wider lg:flex"
         style={{ borderColor: "var(--line-soft)", color: "var(--ink-3)", background: "var(--surface)" }}
@@ -91,7 +91,7 @@ export function EmailList({
                 >
                   <Avatar name={e.from.name} bucket={e.bucket} />
 
-                  {/* Apilado en móvil, en columnas desde lg. */}
+                  {/* Stacked on mobile, in columns from lg up. */}
                   <div className="min-w-0 flex-1 lg:flex lg:items-center lg:gap-4">
                     <div className="min-w-0 lg:w-[150px] lg:shrink-0">
                       <div className="flex items-baseline gap-2">
@@ -130,7 +130,7 @@ export function EmailList({
                       </div>
                     </div>
 
-                    {/* El porqué never se esconde: en móvil baja a su propia línea. */}
+                    {/* The why is never hidden: on mobile it drops to its own line. */}
                     <div className="mt-1.5 min-w-0 lg:mt-0 lg:w-[200px] lg:shrink-0 xl:w-[220px]">
                       <div className="truncate text-[11.5px] font-medium" style={{ color: "var(--ink-2)" }}>
                         &#8627; {e.signals[0]?.label}
@@ -156,8 +156,8 @@ export function EmailList({
                   </div>
 
                   {/*
-                   * Reclasificar en un gesto. Solo en escritorio: depende de hover, que no existe
-                   * en táctil. En móvil se hace desde la hoja de detalle, que tiene los mismos botones.
+                   * Reclassify in one gesture. Desktop only: it depends on hover, which does not
+                   * exist on touch. On mobile it is done from the detail sheet, which has the same buttons.
                    */}
                   <div
                     className="absolute right-4 hidden gap-1 rounded-xl border p-1 opacity-0 shadow-pop transition-opacity group-hover:opacity-100 lg:flex"

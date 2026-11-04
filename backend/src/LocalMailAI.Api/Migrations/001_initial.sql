@@ -89,7 +89,7 @@ CREATE TABLE corrections (
 
 CREATE TABLE extractions (
   email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
-  accion TEXT, urgencia TEXT, fecha_limite TEXT,
+  action TEXT, urgency TEXT, due_date TEXT,
   model TEXT NOT NULL, created_at TEXT NOT NULL
 );
 

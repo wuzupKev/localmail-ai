@@ -12,7 +12,7 @@ namespace LocalMailAI.Api.Data;
 /// its own which query to run.
 ///
 /// A message below UMBRAL_CONFIANZA does not belong to its bucket: it belongs to the
-/// "duda" bucket. That rule is written ONCE and used by both the bucket filter and the
+/// "unsure" bucket. That rule is written ONCE and used by both the bucket filter and the
 /// counts. If each applied it separately, the tile numbers would not match the lists
 /// those tiles open, and paging would break on top of that: a page of 50 would come
 /// back as 43 after filtering client-side.
@@ -37,9 +37,9 @@ public sealed class EmailRepository(Database db)
                 c.bucket        AS Bucket,
                 c.confidence    AS Confidence,
                 c.signals_json  AS SignalsJson,
-                x.accion        AS Accion,
-                x.urgencia      AS Urgencia,
-                x.fecha_limite  AS FechaLimite,
+                x.action        AS Action,
+                x.urgency      AS Urgency,
+                x.due_date  AS DueDate,
                 s.summary       AS Summary,
                 (SELECT COUNT(*) FROM emails e2
                   WHERE e2.thread_id = e.thread_id
@@ -65,9 +65,9 @@ public sealed class EmailRepository(Database db)
         public string? Bucket { get; init; }
         public double? Confidence { get; init; }
         public string? SignalsJson { get; init; }
-        public string? Accion { get; init; }
-        public string? Urgencia { get; init; }
-        public string? FechaLimite { get; init; }
+        public string? Action { get; init; }
+        public string? Urgency { get; init; }
+        public string? DueDate { get; init; }
         public string? Summary { get; init; }
         public long ThreadCount { get; init; }
     }
@@ -77,7 +77,7 @@ public sealed class EmailRepository(Database db)
     /// them on every load, and fetching five whole buckets to paint five numbers would
     /// be absurd.
     ///
-    /// A message below the threshold counts in "duda" and NOT in its bucket. Counting
+    /// A message below the threshold counts in "unsure" and NOT in its bucket. Counting
     /// it in both would mean the tiles do not sum to the total and the user sees
     /// numbers that do not add up.
     /// </summary>
@@ -92,13 +92,13 @@ public sealed class EmailRepository(Database db)
             -- COUNT and not SUM: SUM over zero rows returns NULL, and an empty inbox
             -- is the state of every fresh installation.
             SELECT
-              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'responder'    THEN 1 END) AS Responder,
-              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'informativo'  THEN 1 END) AS Informativo,
-              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'automatizado' THEN 1 END) AS Automatizado,
-              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'ruido'        THEN 1 END) AS Ruido,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'reply'    THEN 1 END) AS Reply,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'fyi'  THEN 1 END) AS Fyi,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'automated' THEN 1 END) AS Automated,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'noise'        THEN 1 END) AS Noise,
               -- Not yet classified also counts as doubt: the pipeline has not reached
               -- that message and asserting a bucket would be making it up.
-              COUNT(CASE WHEN c.bucket IS NULL OR c.confidence < @threshold            THEN 1 END) AS Duda,
+              COUNT(CASE WHEN c.bucket IS NULL OR c.confidence < @threshold            THEN 1 END) AS Unsure,
               COUNT(CASE WHEN e.unread <> 0                                            THEN 1 END) AS Unread
             FROM emails e
             LEFT JOIN classifications c ON c.email_id = e.id
@@ -106,20 +106,20 @@ public sealed class EmailRepository(Database db)
             new { threshold = SignalBaseline.ConfidenceThreshold });
 
         return new CountsDto(
-            (int)row.Responder,
-            (int)row.Informativo,
-            (int)row.Automatizado,
-            (int)row.Ruido,
-            (int)row.Duda,
+            (int)row.Reply,
+            (int)row.Fyi,
+            (int)row.Automated,
+            (int)row.Noise,
+            (int)row.Unsure,
             (int)row.Unread);
     }
 
     private sealed record CountsRow(
-        long Responder,
-        long Informativo,
-        long Automatizado,
-        long Ruido,
-        long Duda,
+        long Reply,
+        long Fyi,
+        long Automated,
+        long Noise,
+        long Unsure,
         long Unread);
 
     /// <summary>
@@ -127,7 +127,7 @@ public sealed class EmailRepository(Database db)
     /// frontend needs to repaint the row without asking again.
     ///
     /// Marking read for the first time increments <c>sender_stats.opened</c>, and that
-    /// is NOT bookkeeping: it is the signal separating "automatizado" from "ruido"
+    /// is NOT bookkeeping: it is the signal separating "automated" from "noise"
     /// (§6). Both are machines carrying the same headers; what tells them apart is
     /// whether the user opens them. Every message opened improves the triage.
     /// </summary>
@@ -183,8 +183,8 @@ public sealed class EmailRepository(Database db)
             {Selection}
             WHERE (
                         @bucket IS NULL
-                     OR (@bucket = 'duda' AND (c.bucket IS NULL OR c.confidence < @threshold))
-                     OR (@bucket <> 'duda' AND c.bucket = @bucket AND c.confidence >= @threshold)
+                     OR (@bucket = 'unsure' AND (c.bucket IS NULL OR c.confidence < @threshold))
+                     OR (@bucket <> 'unsure' AND c.bucket = @bucket AND c.confidence >= @threshold)
                   )
               AND (@cursorDate IS NULL OR (e.date_utc, e.id) < (@cursorDate, @cursorId))
             ORDER BY e.date_utc DESC, e.id DESC
@@ -246,13 +246,13 @@ public sealed class EmailRepository(Database db)
             // confidence 0: the frontend routes it to "not sure" because it is below
             // the threshold, which is exactly what we mean while the pipeline has not
             // reached it.
-            Bucket = r.Bucket ?? "informativo",
+            Bucket = r.Bucket ?? "fyi",
             Confidence = r.Confidence ?? 0,
             Signals = signals,
 
             ThreadCount = (int)r.ThreadCount,
             Unread = r.Unread != 0,
-            Extracted = r.Accion is null ? null : new ExtractedDto(r.Accion, r.Urgencia ?? "media", r.FechaLimite),
+            Extracted = r.Action is null ? null : new ExtractedDto(r.Action, r.Urgency ?? "medium", r.DueDate),
 
             // §5: a summary only makes sense on long threads.
             Summary = r.ThreadCount >= 3 ? r.Summary : null,

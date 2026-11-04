@@ -91,7 +91,7 @@ app.MapGet("/api/emails", async (EmailRepository repo, string? bucket, int? limi
     if (bucket is not null && !IsValidBucket(bucket))
     {
         return Error(StatusCodes.Status400BadRequest, "bucket_invalido",
-            $"bucket debe ser responder, informativo, automatizado, ruido o duda; llego '{bucket}'");
+            $"bucket must be reply, fyi, automated, noise or unsure; got '{bucket}'");
     }
 
     var page = await repo.ListAsync(bucket, limit ?? 50, cursor, DateTimeOffset.Now);
@@ -102,7 +102,7 @@ app.MapGet("/api/emails/{id}", async (EmailRepository repo, string id) =>
 {
     var email = await repo.GetAsync(id, DateTimeOffset.Now);
     return email is null
-        ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no hay ningun correo con id '{id}'")
+        ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no message with id '{id}'")
         : Results.Ok(email);
 });
 
@@ -124,7 +124,7 @@ app.MapPatch("/api/emails/{id}", async (EmailRepository repo, string id, UnreadP
 
     var email = await repo.SetUnreadAsync(id, body.Unread.Value, DateTimeOffset.Now);
     return email is null
-        ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no hay ningun correo con id '{id}'")
+        ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no message with id '{id}'")
         : Results.Ok(email);
 });
 
@@ -144,12 +144,12 @@ app.MapPost("/api/emails/{id}/classification",
             "se esperaba {\"bucket\": \"responder|informativo|automatizado|ruido\", \"source\": \"user\"}");
     }
 
-    // 'duda' is not correctable: it is a bucket derived from the threshold, not a
+    // 'unsure' is not correctable: it is a bucket derived from the threshold, not a
     // destination. And the user cannot declare "not sure" on the system's behalf.
-    if (!IsValidBucket(body.Bucket) || body.Bucket == "duda")
+    if (!IsValidBucket(body.Bucket) || body.Bucket == "unsure")
     {
         return Error(StatusCodes.Status400BadRequest, "bucket_invalido",
-            $"bucket debe ser responder, informativo, automatizado o ruido; llego '{body.Bucket}'");
+            $"bucket must be reply, fyi, automated or noise; got '{body.Bucket}'");
     }
 
     // Only 'user' is accepted. The other origins ('bootstrap_sent', 'rule') are set by
@@ -158,13 +158,13 @@ app.MapPost("/api/emails/{id}/classification",
     if (body.Source is not null and not "user")
     {
         return Error(StatusCodes.Status400BadRequest, "source_invalido",
-            $"source solo puede ser 'user' desde la API; llego '{body.Source}'");
+            $"source can only be 'user' from the API; got '{body.Source}'");
     }
 
     var r = await corrections.ApplyAsync(id, BucketNames.Parse(body.Bucket), DateTimeOffset.Now);
 
     return r is null
-        ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no hay ningun correo con id '{id}'")
+        ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no message with id '{id}'")
         : Results.Ok(r);
 });
 
@@ -182,7 +182,7 @@ return 0;
 // --- Helpers -----------------------------------------------------------------
 
 static bool IsValidBucket(string bucket) =>
-    bucket is "responder" or "informativo" or "automatizado" or "ruido" or "duda";
+    bucket is "reply" or "fyi" or "automated" or "noise" or "unsure";
 
 /// <summary>
 /// Resolves a folder given on the command line.

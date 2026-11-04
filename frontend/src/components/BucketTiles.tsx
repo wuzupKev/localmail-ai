@@ -1,9 +1,9 @@
 "use client";
 
-import { BUCKETS, ESTADO_MODELO, enAprendizaje, esDuda, type Email } from "@/lib/mock";
+import { BUCKETS, MODEL_STATUS, isLearning, isUnsure, type Email } from "@/lib/mock";
 import type { Vista } from "./Sidebar";
 
-/** Los tiles son la navegacion, no un adorno de metricas: cada uno filtra la lista. */
+/** The tiles are the navigation, not a metrics ornament: each one filters the list. */
 export function BucketTiles({
   emails,
   dudosos,
@@ -21,22 +21,22 @@ export function BucketTiles({
       label: b.label,
       bg: b.bg,
       ink: b.ink,
-      n: emails.filter((e) => e.bucket === b.id && !esDuda(e)).length,
-      sub: b.id === "responder" ? "someone is waiting on you" : b.id === "informativo" ? "to read" : b.id === "automatizado" ? "from systems" : "promotional",
+      n: emails.filter((e) => e.bucket === b.id && !isUnsure(e)).length,
+      sub: b.id === "reply" ? "someone is waiting on you" : b.id === "fyi" ? "to read" : b.id === "automated" ? "from systems" : "promotional",
     })),
     {
-      id: "duda" as Vista,
+      id: "unsure" as Vista,
       label: "Not sure",
-      bg: "var(--t-duda-bg)",
-      ink: "var(--t-duda-ink)",
+      bg: "var(--t-unsure-bg)",
+      ink: "var(--t-unsure-ink)",
       n: dudosos,
-      sub: enAprendizaje(ESTADO_MODELO) ? "don't know you yet" : "low confidence",
+      sub: isLearning(MODEL_STATUS) ? "don't know you yet" : "low confidence",
     },
   ];
 
   return (
-    // En móvil una fila que se desliza; desde md, rejilla. Cinco tiles apilados
-    // en vertical se comerían la pantalla antes de llegar a la lista.
+    // On mobile a row that scrolls; from md, a grid. Five tiles stacked
+    // vertically would eat the screen before the list came into view.
     <div className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-4 sm:px-6 md:grid md:grid-cols-3 md:gap-3 md:overflow-visible lg:grid-cols-5">
       {tiles.map((t) => {
         const activo = vista === t.id;

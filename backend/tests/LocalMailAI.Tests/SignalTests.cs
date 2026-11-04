@@ -239,7 +239,7 @@ public class SignalTests
         var signals = DeterministicSignals.Compute(f, ctx);
         var c = SignalBaseline.Classify(signals, ctx);
 
-        Assert.Equal(Bucket.Responder, c.Bucket);
+        Assert.Equal(Bucket.Reply, c.Bucket);
         Assert.True(c.Confidence > SignalBaseline.ConfidenceThreshold);
         Assert.Contains(signals, s => s.Kind == SignalKind.RepliedBefore && s.Label == "You have replied 12 times");
         Assert.Contains(signals, s => s.Kind == SignalKind.ToNotCc);
@@ -287,7 +287,7 @@ public class SignalTests
         var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 38, SenderOpened = 0 };
         var c = SignalBaseline.Classify(DeterministicSignals.Compute(f, ctx), ctx);
 
-        Assert.Equal(Bucket.Ruido, c.Bucket);
+        Assert.Equal(Bucket.Noise, c.Bucket);
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public class SignalTests
         var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 212, SenderOpened = 180 };
         var c = SignalBaseline.Classify(DeterministicSignals.Compute(f, ctx), ctx);
 
-        Assert.Equal(Bucket.Automatizado, c.Bucket);
+        Assert.Equal(Bucket.Automated, c.Bucket);
     }
 
     [Fact]
@@ -335,7 +335,7 @@ public class SignalTests
 
         var c = SignalBaseline.Classify(DeterministicSignals.Compute(f, ctx), ctx);
 
-        Assert.Equal(Bucket.Responder, c.Bucket);
+        Assert.Equal(Bucket.Reply, c.Bucket);
     }
 
     [Fact]
@@ -358,7 +358,7 @@ public class SignalTests
 
         Assert.Contains(signals, s => s.Kind == SignalKind.CcNotTo && s.Weight < 0);
         Assert.Equal("neg", signals.First(s => s.Kind == SignalKind.CcNotTo).ToSignal().Sign);
-        Assert.Equal(Bucket.Informativo, c.Bucket);
+        Assert.Equal(Bucket.Fyi, c.Bucket);
     }
 
     [Fact]
@@ -387,7 +387,7 @@ public class SignalTests
         var c = SignalBaseline.Classify(signals, ctx);
 
         Assert.Contains(signals, s => s.Kind == SignalKind.ThirdUnanswered && s.Weight == 3);
-        Assert.Equal(Bucket.Responder, c.Bucket);
+        Assert.Equal(Bucket.Reply, c.Bucket);
         Assert.True(c.Confidence >= 0.9, $"confidence {c.Confidence}");
     }
 

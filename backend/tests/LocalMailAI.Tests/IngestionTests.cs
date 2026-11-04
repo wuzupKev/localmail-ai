@@ -161,7 +161,7 @@ public sealed class IngestionTests : IDisposable
 
         Assert.Equal(3, last.ThreadCount);
         Assert.Contains(last.Signals, s => s.Label == "Third message with no reply from you");
-        Assert.Equal("responder", last.Bucket);
+        Assert.Equal("reply", last.Bucket);
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public sealed class IngestionTests : IDisposable
         Assert.DoesNotContain("<", email.Preview);
         Assert.DoesNotContain("color:red", string.Join(' ', email.Body));
         Assert.Contains("Descubre las herramientas", string.Join(' ', email.Body));
-        Assert.NotEqual("responder", email.Bucket);
+        Assert.NotEqual("reply", email.Bucket);
         Assert.Contains(email.Signals, s => s.Label == "List-Unsubscribe present" && s.Sign == "neg");
     }
 
@@ -286,9 +286,9 @@ public sealed class IngestionTests : IDisposable
             ¿Puedes revisar los numeros del Q3?
             """);
 
-        var responder = await _repo.ListAsync("responder", 50, null, Now);
+        var responder = await _repo.ListAsync("reply", 50, null, Now);
 
-        Assert.All(responder.Items, e => Assert.Equal("responder", e.Bucket));
+        Assert.All(responder.Items, e => Assert.Equal("reply", e.Bucket));
         Assert.Contains(responder.Items, e => e.From.Email == "d.ferran@sagetasolutions.com");
         Assert.DoesNotContain(responder.Items, e => e.From.Email == "noreply@docker.com");
     }
@@ -376,11 +376,11 @@ public sealed class IngestionTests : IDisposable
 
         foreach (var (bucket, expected) in new[]
         {
-            ("responder", c.Responder),
-            ("informativo", c.Informativo),
-            ("automatizado", c.Automatizado),
-            ("ruido", c.Ruido),
-            ("duda", c.Duda),
+            ("reply", c.Reply),
+            ("fyi", c.Fyi),
+            ("automated", c.Automated),
+            ("noise", c.Noise),
+            ("unsure", c.Unsure),
         })
         {
             var list = await _repo.ListAsync(bucket, 200, null, Now);
@@ -391,14 +391,14 @@ public sealed class IngestionTests : IDisposable
         using var cn = _db.Open();
         var total = (int)await cn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM emails");
 
-        Assert.Equal(total, c.Responder + c.Informativo + c.Automatizado + c.Ruido + c.Duda);
+        Assert.Equal(total, c.Reply + c.Fyi + c.Automated + c.Noise + c.Unsure);
     }
 
     [Fact]
     public async Task A_low_confidence_message_leaves_its_bucket_for_doubt()
     {
         // Unknown sender: the baseline gives 0.50, below the threshold. It must not
-        // appear under "responder" even though that is its computed bucket, because
+        // appear under "reply" even though that is its computed bucket, because
         // the frontend paints it in the doubt bucket and it would show up twice.
         var id = await Ingest(
             """
@@ -415,7 +415,7 @@ public sealed class IngestionTests : IDisposable
         Assert.NotNull(email);
         Assert.True(email.Confidence < 0.55, $"confianza {email.Confidence}");
 
-        var inDoubt = await _repo.ListAsync("duda", 50, null, Now);
+        var inDoubt = await _repo.ListAsync("unsure", 50, null, Now);
         Assert.Contains(inDoubt.Items, e => e.Id == id);
 
         var inItsBucket = await _repo.ListAsync(email.Bucket, 50, null, Now);
@@ -426,7 +426,7 @@ public sealed class IngestionTests : IDisposable
     public async Task Marking_read_returns_the_message_and_feeds_the_open_signal()
     {
         // Opening a message increments sender_stats.opened, which is what separates
-        // "automatizado" from "ruido" (§6). It is not bookkeeping: it is the signal.
+        // "automated" from "noise" (§6). It is not bookkeeping: it is the signal.
         var id = await Ingest(
             """
             From: Vercel <no-reply@vercel.com>
@@ -576,11 +576,11 @@ public sealed class IngestionTests : IDisposable
         await cn.ExecuteAsync(
             """
             INSERT INTO corrections (email_id, bucket_before, bucket_after, source, created_at) VALUES
-              (@id, 'informativo', 'responder', 'user',             '2026-11-03T10:00:00Z'),
-              (@id, 'informativo', 'responder', 'user',             '2026-11-03T10:01:00Z'),
-              (@id, NULL,          'responder', 'bootstrap_sent',   '2026-11-03T09:00:00Z'),
-              (@id, NULL,          'ruido',     'bootstrap_folder', '2026-11-03T09:00:00Z'),
-              (@id, NULL,          'ruido',     'rule',             '2026-11-03T09:00:00Z')
+              (@id, 'fyi', 'reply', 'user',             '2026-11-03T10:00:00Z'),
+              (@id, 'fyi', 'reply', 'user',             '2026-11-03T10:01:00Z'),
+              (@id, NULL,          'reply', 'bootstrap_sent',   '2026-11-03T09:00:00Z'),
+              (@id, NULL,          'noise',     'bootstrap_folder', '2026-11-03T09:00:00Z'),
+              (@id, NULL,          'noise',     'rule',             '2026-11-03T09:00:00Z')
             """, new { id });
 
         var status = await new ModelStatusService(_db, _corrections, WithoutEmbeddings(), NullLogger<ModelStatusService>.Instance).GetAsync();
@@ -617,7 +617,7 @@ public sealed class IngestionTests : IDisposable
         await cn.ExecuteAsync(
             """
             INSERT INTO corrections (email_id, bucket_before, bucket_after, source, created_at)
-            VALUES (@id, 'informativo', 'responder', 'user', '2026-11-03T10:00:00Z')
+            VALUES (@id, 'fyi', 'reply', 'user', '2026-11-03T10:00:00Z')
             """, new { id });
 
         Assert.Equal(1, (await service.GetAsync()).Examples);
@@ -625,7 +625,7 @@ public sealed class IngestionTests : IDisposable
         await cn.ExecuteAsync(
             """
             INSERT INTO corrections (email_id, bucket_before, bucket_after, source, created_at)
-            VALUES (@id, 'responder', 'informativo', 'undo', '2026-11-03T10:00:30Z')
+            VALUES (@id, 'reply', 'fyi', 'undo', '2026-11-03T10:00:30Z')
             """, new { id });
 
         var afterUndo = await service.GetAsync();
@@ -656,11 +656,11 @@ public sealed class IngestionTests : IDisposable
         // so both endpoints failed on exactly the first startup.
         var c = await _repo.CountsAsync();
 
-        Assert.Equal(0, c.Responder);
-        Assert.Equal(0, c.Informativo);
-        Assert.Equal(0, c.Automatizado);
-        Assert.Equal(0, c.Ruido);
-        Assert.Equal(0, c.Duda);
+        Assert.Equal(0, c.Reply);
+        Assert.Equal(0, c.Fyi);
+        Assert.Equal(0, c.Automated);
+        Assert.Equal(0, c.Noise);
+        Assert.Equal(0, c.Unsure);
         Assert.Equal(0, c.Unread);
 
         var list = await _repo.ListAsync(null, 50, null, Now);
@@ -681,18 +681,18 @@ public sealed class IngestionTests : IDisposable
 
         var before = await _repo.GetAsync(id, Now);
         Assert.True(before!.Confidence < 0.55, $"confianza initial {before.Confidence}");
-        Assert.Contains((await _repo.ListAsync("duda", 50, null, Now)).Items, e => e.Id == id);
+        Assert.Contains((await _repo.ListAsync("unsure", 50, null, Now)).Items, e => e.Id == id);
 
-        var r = await _corrections.ApplyAsync(id, Bucket.Informativo, Now);
+        var r = await _corrections.ApplyAsync(id, Bucket.Fyi, Now);
 
         Assert.NotNull(r);
         Assert.NotNull(r.Email);
-        Assert.Equal("informativo", r.Email.Bucket);
+        Assert.Equal("fyi", r.Email.Bucket);
         Assert.Equal(1.0, r.Email.Confidence);
         Assert.Equal(1, r.Examples);
 
-        Assert.Contains((await _repo.ListAsync("informativo", 50, null, Now)).Items, e => e.Id == id);
-        Assert.DoesNotContain((await _repo.ListAsync("duda", 50, null, Now)).Items, e => e.Id == id);
+        Assert.Contains((await _repo.ListAsync("fyi", 50, null, Now)).Items, e => e.Id == id);
+        Assert.DoesNotContain((await _repo.ListAsync("unsure", 50, null, Now)).Items, e => e.Id == id);
     }
 
     [Fact]
@@ -715,7 +715,7 @@ public sealed class IngestionTests : IDisposable
         var signalsBefore = (await _repo.GetAsync(id, Now))!.Signals.Length;
         Assert.True(signalsBefore > 0);
 
-        var r = await _corrections.ApplyAsync(id, Bucket.Responder, Now);
+        var r = await _corrections.ApplyAsync(id, Bucket.Reply, Now);
 
         Assert.Equal(signalsBefore, r!.Email!.Signals.Length);
         Assert.Contains(r.Email.Signals, x => x.Label == "List-Unsubscribe present");
@@ -733,8 +733,8 @@ public sealed class IngestionTests : IDisposable
         var originalBucket = original!.Bucket;
         var originalConfidence = original.Confidence;
 
-        await _corrections.ApplyAsync(id, Bucket.Ruido, Now);
-        Assert.Equal("ruido", (await _repo.GetAsync(id, Now))!.Bucket);
+        await _corrections.ApplyAsync(id, Bucket.Noise, Now);
+        Assert.Equal("noise", (await _repo.GetAsync(id, Now))!.Bucket);
 
         var r = await _corrections.UndoAsync(Now);
 
@@ -744,7 +744,7 @@ public sealed class IngestionTests : IDisposable
         Assert.Equal(0, r.Examples);
 
         // And it is back in the doubt bucket, where it was.
-        Assert.Contains((await _repo.ListAsync("duda", 50, null, Now)).Items, e => e.Id == id);
+        Assert.Contains((await _repo.ListAsync("unsure", 50, null, Now)).Items, e => e.Id == id);
     }
 
     [Fact]
@@ -766,19 +766,19 @@ public sealed class IngestionTests : IDisposable
         var b = await Ingest(Message("b"));
         var c = await Ingest(Message("c"));
 
-        await _corrections.ApplyAsync(a, Bucket.Ruido, Now);
-        await _corrections.ApplyAsync(b, Bucket.Ruido, Now);
+        await _corrections.ApplyAsync(a, Bucket.Noise, Now);
+        await _corrections.ApplyAsync(b, Bucket.Noise, Now);
 
         var undoneB = await _corrections.UndoAsync(Now);
         Assert.Equal(b, undoneB.Email!.Id);
 
-        await _corrections.ApplyAsync(c, Bucket.Ruido, Now);
+        await _corrections.ApplyAsync(c, Bucket.Noise, Now);
 
         var undoneC = await _corrections.UndoAsync(Now);
         Assert.Equal(c, undoneC.Email!.Id);
 
         // A is still corrected: nobody touched it.
-        Assert.Equal("ruido", (await _repo.GetAsync(a, Now))!.Bucket);
+        Assert.Equal("noise", (await _repo.GetAsync(a, Now))!.Bucket);
         Assert.Equal(1, undoneC.Examples);
 
         // And the next undo does reach A.
@@ -794,9 +794,9 @@ public sealed class IngestionTests : IDisposable
         // retraining from scratch and no way to measure whether the model improves.
         var id = await Ingest(Message("historial"));
 
-        await _corrections.ApplyAsync(id, Bucket.Ruido, Now);
+        await _corrections.ApplyAsync(id, Bucket.Noise, Now);
         await _corrections.UndoAsync(Now);
-        await _corrections.ApplyAsync(id, Bucket.Automatizado, Now);
+        await _corrections.ApplyAsync(id, Bucket.Automated, Now);
 
         using var cn = _db.Open();
         var origins = (await cn.QueryAsync<string>(
@@ -809,7 +809,7 @@ public sealed class IngestionTests : IDisposable
     [Fact]
     public async Task Correcting_a_nonexistent_message_returns_null()
     {
-        Assert.Null(await _corrections.ApplyAsync("noexiste", Bucket.Responder, Now));
+        Assert.Null(await _corrections.ApplyAsync("noexiste", Bucket.Reply, Now));
     }
 
     /// <summary>A minimal message from an unknown sender, which lands in doubt.</summary>

@@ -5,7 +5,7 @@ using MimeKit;
 namespace LocalMailAI.Tests;
 
 /// <summary>
-/// The two content signals that give "informativo" evidence OF ITS OWN, rather than
+/// The two content signals that give "fyi" evidence OF ITS OWN, rather than
 /// it being reached by elimination. They come from mock.ts (e6 and e15) but were
 /// missing from the §6 table.
 ///
@@ -81,7 +81,7 @@ public class ContentSignalTests
         var c = SignalBaseline.Classify(signals, ctx);
 
         Assert.Contains(signals, s => s.Kind == SignalKind.ExplicitlyNoAction);
-        Assert.Equal(Bucket.Informativo, c.Bucket);
+        Assert.Equal(Bucket.Fyi, c.Bucket);
         Assert.True(c.Confidence >= SignalBaseline.ConfidenceThreshold,
             $"confidence {c.Confidence} should reach the threshold {SignalBaseline.ConfidenceThreshold}");
     }

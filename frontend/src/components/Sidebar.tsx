@@ -1,9 +1,9 @@
 "use client";
 
-import { ESTADO_MODELO, enAprendizaje, type Bucket } from "@/lib/mock";
+import { MODEL_STATUS, isLearning, type Bucket } from "@/lib/mock";
 import { Logo } from "./bits";
 
-export type Vista = Bucket | "duda";
+export type Vista = Bucket | "unsure";
 
 type NavId = "bandeja" | "buscar" | "modelo" | "ayuda";
 
@@ -68,7 +68,7 @@ export function Sidebar({
     fn?.();
   };
 
-  const aprendiendo = enAprendizaje(ESTADO_MODELO);
+  const aprendiendo = isLearning(MODEL_STATUS);
 
   const items: { id: NavId; label: string; onClick: () => void; active?: boolean }[] = [
     { id: "bandeja", label: "Today's inbox", active: true, onClick: cerrarY() },
@@ -79,7 +79,7 @@ export function Sidebar({
 
   return (
     <>
-      {/* Por debajo de lg la barra es un cajón: fuera de pantalla hasta que se pide. */}
+      {/* Below lg the bar is a drawer: off-screen until it is asked for. */}
       {abierta && (
         <div
           className="animate-fade fixed inset-0 z-40 lg:hidden"
@@ -99,7 +99,7 @@ export function Sidebar({
           <Logo />
         </div>
 
-        {/* La zona que se desplaza si la pantalla es baja; la tarjeta de estado queda al fondo. */}
+        {/* The area that scrolls on short screens; the status card stays at the bottom. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <nav className="flex shrink-0 flex-col gap-0.5">
             {items.map((it) => (
@@ -119,10 +119,10 @@ export function Sidebar({
           </nav>
 
           {/*
-            * Capacidad perdida, no producto roto: el triage por senales sigue activo.
-            * Degradar bien esta bien; degradar en silencio, no.
+            * Lost capability, not a broken product: signal triage is still running.
+            * Degrading well is fine; degrading silently is not.
             */}
-          {!ESTADO_MODELO.embeddingsAvailable && (
+          {!MODEL_STATUS.embeddingsAvailable && (
             <div
               className="mt-5 shrink-0 rounded-2xl border p-3.5"
               style={{ borderColor: "rgba(255,255,255,.14)", background: "rgba(255,255,255,.06)" }}
@@ -134,7 +134,7 @@ export function Sidebar({
                 </span>
               </div>
               <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--nav-ink)" }}>
-                {ESTADO_MODELO.embeddingsMissingReason}
+                {MODEL_STATUS.embeddingsMissingReason}
               </p>
               <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--nav-ink)", opacity: 0.8 }}>
                 No semantic search. Signal-based triage still works.
@@ -155,7 +155,7 @@ export function Sidebar({
                   unsorted
                 </span>
               </div>
-              {/* "Aún no te conozco" y "este correo es ambiguo" no son lo mismo. */}
+              {/* "I do not know you yet" and "this message is ambiguous" are not the same. */}
               <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "#f5c451", opacity: 0.75 }}>
                 {aprendiendo
                   ? "I don't know you yet. Correct a few and I'll learn."
@@ -164,7 +164,7 @@ export function Sidebar({
             </div>
           )}
 
-          {/* Estado del motor: la prueba visible de que todo ocurre en la máquina. */}
+          {/* Engine status: the visible proof that everything happens on the machine. */}
           <div
             className="mt-auto shrink-0 rounded-2xl border p-4"
             style={{ background: "var(--nav-panel)", borderColor: "var(--nav-line)" }}
@@ -177,11 +177,11 @@ export function Sidebar({
 
             <dl className="mt-3 space-y-1.5">
               {[
-                ["Examples", ESTADO_MODELO.examples.toLocaleString("en-US")],
-                // null = aún no medido (falta el set de evaluación). Inventar un número aquí
-                // sería mentir en la propia barra lateral del usuario.
-                ["Accuracy", ESTADO_MODELO.precision === null ? "not measured" : `${Math.round(ESTADO_MODELO.precision * 100)}%`],
-                ["Indexed", ESTADO_MODELO.indexedEmails.toLocaleString("en-US")],
+                ["Examples", MODEL_STATUS.examples.toLocaleString("en-US")],
+                // null = not measured yet (the evaluation set is missing). Inventing a number here
+                // would be lying in the user's own sidebar.
+                ["Accuracy", MODEL_STATUS.precision === null ? "not measured" : `${Math.round(MODEL_STATUS.precision * 100)}%`],
+                ["Indexed", MODEL_STATUS.indexedEmails.toLocaleString("en-US")],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-baseline justify-between gap-2">
                   <dt className="text-[11px]" style={{ color: "rgba(255,255,255,.45)" }}>

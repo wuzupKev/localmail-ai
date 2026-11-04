@@ -14,7 +14,7 @@ public sealed record MailboxDto(string Name, string Email);
 
 public sealed record SignalDto(string Label, string Sign);
 
-public sealed record ExtractedDto(string Accion, string Urgencia, string? FechaLimite);
+public sealed record ExtractedDto(string Action, string Urgency, string? DueDate);
 
 public sealed record EmailDto
 {
@@ -36,15 +36,15 @@ public sealed record EmailDto
 public sealed record EmailPageDto(EmailDto[] Items, string? NextCursor);
 
 /// <summary>
-/// Counts for the tiles on the main screen. "duda" is the set of messages below
+/// Counts for the tiles on the main screen. "unsure" is the set of messages below
 /// UMBRAL_CONFIANZA, which are not counted in their bucket.
 /// </summary>
 public sealed record CountsDto(
-    int Responder,
-    int Informativo,
-    int Automatizado,
-    int Ruido,
-    int Duda,
+    int Reply,
+    int Fyi,
+    int Automated,
+    int Noise,
+    int Unsure,
     int Unread);
 
 /// <summary>

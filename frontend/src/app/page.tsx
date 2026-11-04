@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { BUCKETS, EMAILS, ESTADO_MODELO, esDuda, type Bucket, type Email } from "@/lib/mock";
+import { BUCKETS, EMAILS, MODEL_STATUS, isUnsure, type Bucket, type Email } from "@/lib/mock";
 import { Sidebar, type Vista } from "@/components/Sidebar";
 import { BucketTiles } from "@/components/BucketTiles";
 import { EmailList } from "@/components/EmailList";
@@ -12,8 +12,8 @@ import { IconButton } from "@/components/bits";
 type Undo = { email: Email; examples: number };
 
 /**
- * Next 16 no deja leer el reloj durante el prerender, así que la fecha es un valor
- * exclusivo de cliente: vacía en el servidor, resuelta y cacheada en el navegador.
+ * Next 16 does not allow reading the clock during prerender, so the date is a
+ * client-only value: empty on the server, resolved and cached in the browser.
  */
 let fechaCache: string | null = null;
 const sinSuscripcion = () => () => {};
@@ -32,29 +32,29 @@ const LUPA = (
 
 export default function Page() {
   const [emails, setEmails] = useState<Email[]>(EMAILS);
-  const [vista, setVista] = useState<Vista>("responder");
+  const [vista, setVista] = useState<Vista>("reply");
   const [selectedId, setSelectedId] = useState<string | null>("e1");
   const [modal, setModal] = useState<null | "buscar" | "ajustes" | "ayuda" | "confirmar">(null);
   const [navAbierta, setNavAbierta] = useState(false);
   const [hojaAbierta, setHojaAbierta] = useState(false);
   const [toast, setToast] = useState<{ texto: string; undo: boolean } | null>(null);
-  const [examples, setExamples] = useState(ESTADO_MODELO.examples);
+  const [examples, setExamples] = useState(MODEL_STATUS.examples);
   const [pendientes, setPendientes] = useState(0);
   const [sync, setSync] = useState<{ estado: "idle" | "syncing"; desde: number }>({ estado: "idle", desde: 2 });
 
   const undoRef = useRef<Undo | null>(null);
 
-  // La particion en cinco cajones la decide el servidor: aqui se simula con el mismo criterio.
-  const dudosos = useMemo(() => emails.filter(esDuda), [emails]);
+  // The split into five drawers is the server's decision: simulated here with the same rule.
+  const dudosos = useMemo(() => emails.filter(isUnsure), [emails]);
   const visibles = useMemo(
-    () => (vista === "duda" ? dudosos : emails.filter((e) => e.bucket === vista && !esDuda(e))),
+    () => (vista === "unsure" ? dudosos : emails.filter((e) => e.bucket === vista && !isUnsure(e))),
     [emails, vista, dudosos]
   );
   const seleccionado = emails.find((e) => e.id === selectedId) ?? null;
 
   /**
-   * En el backend real una corrección se guarda como evento
-   * (email_id, bucket_anterior, bucket_nuevo, origen, timestamp), never sobrescribiendo la label.
+   * In the real backend a correction is stored as an event
+   * (email_id, bucket_before, bucket_after, source, timestamp), never overwriting the label.
    */
   const reclassify = useCallback(
     (id: string, bucket: Bucket) => {
@@ -76,7 +76,7 @@ export default function Page() {
     [emails, examples]
   );
 
-  // Heurística 3: control y libertad del usuario. Toda reclasificación es reversible.
+  // Heuristic 3: user control and freedom. Every reclassification is reversible.
   const deshacer = useCallback(() => {
     const u = undoRef.current;
     if (!u) return;
@@ -96,13 +96,13 @@ export default function Page() {
   const cambiarVista = useCallback(
     (v: Vista) => {
       setVista(v);
-      const lista = v === "duda" ? dudosos : emails.filter((e) => e.bucket === v && !esDuda(e));
+      const lista = v === "unsure" ? dudosos : emails.filter((e) => e.bucket === v && !isUnsure(e));
       setSelectedId(lista[0]?.id ?? null);
     },
     [emails, dudosos]
   );
 
-  // Heurística 1: el estado del sistema siempre visible, también mientras trabaja.
+  // Heuristic 1: system status always visible, including while it works.
   const sincronizar = useCallback(() => {
     setSync({ estado: "syncing", desde: 0 });
     setTimeout(() => setSync({ estado: "idle", desde: 0 }), 1800);
@@ -147,7 +147,7 @@ export default function Page() {
   const nuevos = emails.filter((e) => e.unread).length;
 
   return (
-    // h-dvh, no h-screen: en móvil la barra del navegador se come los 100vh.
+    // h-dvh, not h-screen: on mobile the browser bar eats the 100vh.
     <div className="h-dvh overflow-hidden sm:p-3 lg:p-5">
       <div
         className="mx-auto flex h-full w-full max-w-[1680px] overflow-hidden sm:rounded-[26px] sm:shadow-shell"
@@ -258,7 +258,7 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Por debajo de xl el detalle se abre como hoja; por encima ya está el panel lateral. */}
+      {/* Below xl the detail opens as a sheet; above it the side panel is already there. */}
       {hojaAbierta && seleccionado && (
         <DetailSheet email={seleccionado} onClose={() => setHojaAbierta(false)} onReclasificar={reclassify} />
       )}
@@ -270,7 +270,7 @@ export default function Page() {
           onSelect={(id) => {
             const e = emails.find((x) => x.id === id);
             if (e) {
-              setVista(esDuda(e) ? "duda" : e.bucket);
+              setVista(isUnsure(e) ? "unsure" : e.bucket);
               setSelectedId(id);
             }
           }}

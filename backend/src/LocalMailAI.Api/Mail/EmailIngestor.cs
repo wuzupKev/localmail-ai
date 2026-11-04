@@ -62,7 +62,7 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
         if (alreadyPresent)
         {
             tx.Rollback();
-            return new IngestResult(id, false, Bucket.Informativo, 0);
+            return new IngestResult(id, false, Bucket.Fyi, 0);
         }
 
         var body = BodyNormalizer.FromMessage(message);

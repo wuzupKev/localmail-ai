@@ -1,18 +1,18 @@
-// Datos falsos para el mockup de LocalMail AI.
-// Nada de esto viene de un backend: sirve para discutir la interfaz, no para funcionar.
+// Fake data for the LocalMail AI mockup.
+// None of it comes from a backend: it exists to discuss the interface, not to work.
 
-export type Bucket = "responder" | "informativo" | "automatizado" | "ruido";
+export type Bucket = "reply" | "fyi" | "automated" | "noise";
 
 export type BucketDef = { id: Bucket; label: string; short: string; bg: string; ink: string; key: string };
 
 export const BUCKETS: BucketDef[] = [
-  { id: "responder", label: "Needs a reply", short: "Reply", bg: "var(--t-responder-bg)", ink: "var(--t-responder-ink)", key: "1" },
-  { id: "informativo", label: "FYI", short: "FYI", bg: "var(--t-info-bg)", ink: "var(--t-info-ink)", key: "2" },
-  { id: "automatizado", label: "Automated", short: "Automated", bg: "var(--t-auto-bg)", ink: "var(--t-auto-ink)", key: "3" },
-  { id: "ruido", label: "Noise", short: "Noise", bg: "var(--t-ruido-bg)", ink: "var(--t-ruido-ink)", key: "4" },
+  { id: "reply", label: "Needs a reply", short: "Reply", bg: "var(--t-reply-bg)", ink: "var(--t-reply-ink)", key: "1" },
+  { id: "fyi", label: "FYI", short: "FYI", bg: "var(--t-info-bg)", ink: "var(--t-info-ink)", key: "2" },
+  { id: "automated", label: "Automated", short: "Automated", bg: "var(--t-auto-bg)", ink: "var(--t-auto-ink)", key: "3" },
+  { id: "noise", label: "Noise", short: "Noise", bg: "var(--t-noise-bg)", ink: "var(--t-noise-ink)", key: "4" },
 ];
 
-/** Senal determinista: barata, explicable en una frase. El motivo por el que el triage se entiende. */
+/** A deterministic signal: cheap, explainable in one sentence. It is what makes triage legible. */
 export type Signal = { label: string; sign: "pos" | "neg" | "neutral" };
 
 export type Email = {
@@ -23,14 +23,14 @@ export type Email = {
   body: string[];
   time: string;
   bucket: Bucket;
-  /** 0..1 - por debajo del umbral el correo cae en "No estoy seguro" en vez de adivinar. */
+  /** 0..1 - below the threshold the message falls into "Not sure" instead of being guessed. */
   confidence: number;
   signals: Signal[];
   threadCount: number;
   unread: boolean;
-  /** Extraccion estructurada simulada (lo que devolveria el SLM con esquema JSON forzado). */
-  extracted?: { accion: string; urgencia: "alta" | "media" | "baja"; fechaLimite?: string };
-  /** Resumen simulado: solo para hilos largos, y en el producto real se pide bajo demanda. */
+  /** Simulated structured extraction (what the SLM would return with a forced JSON schema). */
+  extracted?: { action: string; urgency: "high" | "medium" | "low"; dueDate?: string };
+  /** Simulated summary: long threads only, and in the real product it is requested on demand. */
   summary?: string;
 };
 
@@ -47,7 +47,7 @@ export const EMAILS: Email[] = [
       "Best,\nAna",
     ],
     time: "9:14",
-    bucket: "responder",
+    bucket: "reply",
     confidence: 0.94,
     signals: [
       { label: "You have replied 12 times", sign: "pos" },
@@ -57,7 +57,7 @@ export const EMAILS: Email[] = [
     ],
     threadCount: 4,
     unread: true,
-    extracted: { accion: "Confirm whether Thursday at 10 works", urgencia: "alta", fechaLimite: "2026-11-05" },
+    extracted: { action: "Confirm whether Thursday at 10 works", urgency: "high", dueDate: "2026-11-05" },
   },
   {
     id: "e2",
@@ -70,7 +70,7 @@ export const EMAILS: Email[] = [
       "You can pay from your account area or by transfer to the usual account.",
     ],
     time: "8:47",
-    bucket: "responder",
+    bucket: "reply",
     confidence: 0.48,
     signals: [
       { label: "New sender, no history", sign: "neutral" },
@@ -80,7 +80,7 @@ export const EMAILS: Email[] = [
     ],
     threadCount: 1,
     unread: true,
-    extracted: { accion: "Pay invoice F-2291 (EUR 348.00)", urgencia: "media", fechaLimite: "2026-11-10" },
+    extracted: { action: "Pay invoice F-2291 (EUR 348.00)", urgency: "medium", dueDate: "2026-11-10" },
   },
   {
     id: "e3",
@@ -94,7 +94,7 @@ export const EMAILS: Email[] = [
       "Thanks,\nDiego",
     ],
     time: "Yesterday",
-    bucket: "responder",
+    bucket: "reply",
     confidence: 0.91,
     signals: [
       { label: "You have replied 31 times", sign: "pos" },
@@ -103,7 +103,7 @@ export const EMAILS: Email[] = [
     ],
     threadCount: 9,
     unread: false,
-    extracted: { accion: "Send the Q3 usage data", urgencia: "alta", fechaLimite: "2026-11-06" },
+    extracted: { action: "Send the Q3 usage data", urgency: "high", dueDate: "2026-11-06" },
     summary:
       "A 9-message thread about the Nordia migration proposal. Scope and price were agreed on 22/10. Diego blocked the send because the Q2 figures do not match the projected growth. Outstanding: you need to send the Q3 usage before Friday.",
   },
@@ -118,7 +118,7 @@ export const EMAILS: Email[] = [
       "Without them I cannot file the quarter. Can you send them this week?",
     ],
     time: "Yesterday",
-    bucket: "responder",
+    bucket: "reply",
     confidence: 0.88,
     signals: [
       { label: "You have replied 8 times", sign: "pos" },
@@ -127,7 +127,7 @@ export const EMAILS: Email[] = [
     ],
     threadCount: 3,
     unread: false,
-    extracted: { accion: "Send the October expense receipts", urgencia: "media" },
+    extracted: { action: "Send the October expense receipts", urgency: "medium" },
   },
   {
     id: "e5",
@@ -139,7 +139,7 @@ export const EMAILS: Email[] = [
       "12 files changed, +431 -87.",
     ],
     time: "7:02",
-    bucket: "responder",
+    bucket: "reply",
     confidence: 0.72,
     signals: [
       { label: "Direct mention of your username", sign: "pos" },
@@ -148,7 +148,7 @@ export const EMAILS: Email[] = [
     ],
     threadCount: 1,
     unread: true,
-    extracted: { accion: "Review pull request #14", urgencia: "media" },
+    extracted: { action: "Review pull request #14", urgency: "medium" },
   },
   {
     id: "e6",
@@ -161,7 +161,7 @@ export const EMAILS: Email[] = [
       "No action needed from you, this is just for the record.",
     ],
     time: "11:30",
-    bucket: "informativo",
+    bucket: "fyi",
     confidence: 0.86,
     signals: [
       { label: "You are on Cc:, not To:", sign: "neg" },
@@ -178,7 +178,7 @@ export const EMAILS: Email[] = [
     preview: "Shipped: 7. Open issues: 3. Next demo: 12 November...",
     body: ["Shipped: 7.", "Open issues: 3.", "Next demo: 12 November."],
     time: "Mon",
-    bucket: "informativo",
+    bucket: "fyi",
     confidence: 0.79,
     signals: [
       { label: "Recurring weekly email", sign: "neutral" },
@@ -195,7 +195,7 @@ export const EMAILS: Email[] = [
     preview: "A charge of EUR 89.90 was posted on 02/11/2026...",
     body: ["A charge of EUR 89.90 was posted on 02/11/2026 to your account ending 4471."],
     time: "Mon",
-    bucket: "informativo",
+    bucket: "fyi",
     confidence: 0.83,
     signals: [
       { label: "Verified sender (DKIM + SPF)", sign: "pos" },
@@ -212,7 +212,7 @@ export const EMAILS: Email[] = [
     preview: "Your deployment completed successfully in 48s...",
     body: ["Your deployment completed successfully in 48s."],
     time: "6:12",
-    bucket: "automatizado",
+    bucket: "automated",
     confidence: 0.96,
     signals: [
       { label: "A no-reply address", sign: "neg" },
@@ -229,7 +229,7 @@ export const EMAILS: Email[] = [
     preview: "Ticket SAG-1182 changed status...",
     body: ["Ticket SAG-1182 moved to In Review."],
     time: "6:40",
-    bucket: "automatizado",
+    bucket: "automated",
     confidence: 0.93,
     signals: [
       { label: "Automated sender", sign: "neg" },
@@ -246,7 +246,7 @@ export const EMAILS: Email[] = [
     preview: "You have used 180 of 200 anonymous pulls this month...",
     body: ["You have used 180 of 200 anonymous pulls this month."],
     time: "Mon",
-    bucket: "automatizado",
+    bucket: "automated",
     confidence: 0.9,
     signals: [
       { label: "List-Unsubscribe present", sign: "neg" },
@@ -262,7 +262,7 @@ export const EMAILS: Email[] = [
     preview: "Discover the tools that are changing how people work...",
     body: ["Discover the tools that are changing how people work."],
     time: "5:30",
-    bucket: "ruido",
+    bucket: "noise",
     confidence: 0.97,
     signals: [
       { label: "List-Unsubscribe present", sign: "neg" },
@@ -280,7 +280,7 @@ export const EMAILS: Email[] = [
     preview: "Your cart is waiting. Act before midnight...",
     body: ["Your cart is waiting. Act before midnight."],
     time: "4:58",
-    bucket: "ruido",
+    bucket: "noise",
     confidence: 0.98,
     signals: [
       { label: "List-Unsubscribe present", sign: "neg" },
@@ -297,7 +297,7 @@ export const EMAILS: Email[] = [
     preview: "Do not miss the early registration discount...",
     body: ["Do not miss the early registration discount."],
     time: "Sun",
-    bucket: "ruido",
+    bucket: "noise",
     confidence: 0.81,
     signals: [
       { label: "List-Unsubscribe present", sign: "neg" },
@@ -313,7 +313,7 @@ export const EMAILS: Email[] = [
     preview: "We received your request. An agent will review it within 48 hours...",
     body: ["We received your request. An agent will review it within 48 hours."],
     time: "10:05",
-    bucket: "informativo",
+    bucket: "fyi",
     confidence: 0.41,
     signals: [
       { label: "New sender, no history", sign: "neutral" },
@@ -334,7 +334,7 @@ export const EMAILS: Email[] = [
       "This is the third email I have sent about this.",
     ],
     time: "8:02",
-    bucket: "responder",
+    bucket: "reply",
     confidence: 0.95,
     signals: [
       { label: "Third message with no reply from you", sign: "pos" },
@@ -343,34 +343,34 @@ export const EMAILS: Email[] = [
     ],
     threadCount: 6,
     unread: true,
-    extracted: { accion: "Give a status on the production incident", urgencia: "alta" },
+    extracted: { action: "Give a status on the production incident", urgency: "high" },
     summary:
       "A 6-message thread opened on 28/10 over a billing service outage. The team confirmed the fault but has not shared a cause or a timeline. Pablo has written three times with no reply since 30/10. Escalation risk: he is the main contract contact.",
   },
 ];
 
 /**
- * Umbral por debajo del cual el clasificador admite que no sabe, en vez de adivinar.
+ * The threshold below which the classifier admits it does not know, instead of guessing.
  *
- * OJO: en produccion esta regla vive SOLO en el backend. El front pide `?bucket=duda`
- * y no filtra por confianza, porque si filtrara en cliente el numero del tile y el de
- * la lista dejarian de coincidir, y ademas romperia la paginacion: pides 50, te quedan
- * 43 tras filtrar, y el cursor ya avanzo 50. Aqui se replica solo para el mock.
+ * NOTE: in production this rule lives ONLY in the backend. The front asks for `?bucket=unsure`
+ * and does not filter on confidence, because filtering client-side would make the tile's
+ * number and the list's stop matching, and would break pagination too: you ask for 50, 43
+ * remain after filtering, and the cursor already moved 50. Replicated here for the mock only.
  */
-export const UMBRAL_CONFIANZA = 0.55;
+export const CONFIDENCE_THRESHOLD = 0.55;
 
-/** Unico sitio del front que conoce el umbral. Al cablear la API, esto desaparece. */
-export const esDuda = (e: Email) => e.confidence < UMBRAL_CONFIANZA;
+/** The only place in the front that knows the threshold. Wiring up the API removes it. */
+export const isUnsure = (e: Email) => e.confidence < CONFIDENCE_THRESHOLD;
 
 /**
- * Estado del motor, con la forma exacta de GET /api/model/status.
+ * Engine status, in the exact shape of GET /api/model/status.
  *
- * `precision` y `lastTrained` son `number | null` / `string | null`, NO opcionales: el backend
- * los manda siempre, y `null` significa "todavia no medido" (no hay set de evaluacion aun).
- * Es lo contrario de `extracted`/`summary` en Email, que se omiten cuando no existen; alli
- * ausente significa "este correo no tiene extraccion". La diferencia es deliberada.
+ * `precision` and `lastTrained` are `number | null` / `string | null`, NOT optional: the backend
+ * always sends them, and `null` means "not measured yet" (there is no evaluation set so far).
+ * It is the opposite of `extracted`/`summary` in Email, which are omitted when absent; there
+ * absent means "this message has no extraction". The difference is deliberate.
  */
-export type EstadoModelo = {
+export type ModelStatus = {
   examples: number;
   examplesBySource: { user: number; bootstrapSent: number; bootstrapFolder: number; rule: number };
   bootstrapRan: boolean;
@@ -380,13 +380,13 @@ export type EstadoModelo = {
   lastTrained: string | null;
   indexedEmails: number;
   ollamaAvailable: boolean;
-  /** Los embeddings (470 MB) no van en git. Sin ellos se pierde capacidad, no el producto. */
+  /** The embeddings (470 MB) are not in git. Without them you lose capability, not the product. */
   embeddingsAvailable: boolean;
-  /** Siempre viaja; null cuando todo esta bien. Es la explicacion que muestra el aviso. */
+  /** Always travels; null when all is well. It is the explanation the notice shows. */
   embeddingsMissingReason: string | null;
 };
 
-export const ESTADO_MODELO: EstadoModelo = {
+export const MODEL_STATUS: ModelStatus = {
   examples: 312,
   examplesBySource: { user: 96, bootstrapSent: 184, bootstrapFolder: 32, rule: 0 },
   bootstrapRan: true,
@@ -400,12 +400,12 @@ export const ESTADO_MODELO: EstadoModelo = {
   embeddingsMissingReason: null,
 };
 
-/** Por debajo de esto, la incertidumbre es falta de historial, no un caso dificil. */
-export const EJEMPLOS_PARA_CONOCERTE = 50;
+/** Below this, uncertainty is a lack of history rather than a genuinely hard case. */
+export const EXAMPLES_TO_KNOW_YOU = 50;
 
 /**
- * Distingue los dos motivos por los que un correo cae en "No estoy seguro":
- * el modelo aun no te conoce, o te conoce y este correo es genuinamente ambiguo.
- * El dia 1 medio buzon cae en ese cajon, y sin este matiz se lee como producto roto.
+ * Tells apart the two reasons a message lands in "Not sure":
+ * the model does not know you yet, or it does and this message is genuinely ambiguous.
+ * On day 1 half the inbox lands there, and without this nuance it reads as a broken product.
  */
-export const enAprendizaje = (e: EstadoModelo) => !e.bootstrapRan || e.examples < EJEMPLOS_PARA_CONOCERTE;
+export const isLearning = (e: ModelStatus) => !e.bootstrapRan || e.examples < EXAMPLES_TO_KNOW_YOU;

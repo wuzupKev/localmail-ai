@@ -24,7 +24,7 @@ project and this is not it.
 
 **In the MVP**
 
-1. Triage into 4 buckets: responder / informativo / automatizado / ruido.
+1. Triage into 4 buckets: reply / fyi / automated / noise.
 2. A "not sure" drawer: confidence < 0.55. The server decides the partition, not the front.
 3. Correction that retrains in place. Frontend requirement: a response in < 300 ms.
 4. Undo, via an inverse event. See `POST /api/corrections/undo`.
@@ -90,7 +90,7 @@ The frontend consumes it through `NEXT_PUBLIC_API_URL`.
 A literal copy of `frontend/src/lib/mock.ts`:
 
 ```ts
-type Bucket = "responder" | "informativo" | "automatizado" | "ruido";
+type Bucket = "reply" | "fyi" | "automated" | "noise";
 type Signal = { label: string; sign: "pos" | "neg" | "neutral" };
 
 type Email = {
@@ -99,22 +99,22 @@ type Email = {
   subject: string;
   preview: string;          // 140 chars of the normalised body
   body: string[];           // plain-text paragraphs, quotes and signatures already stripped
-  time: string;             // "9:14" if today, "Ayer", "Lun", or "12 oct"
+  time: string;             // "9:14" if today, "Yesterday", "Mon", or "12 Oct"
   bucket: Bucket;
   confidence: number;       // 0..1
   signals: Signal[];        // sorted by descending weight, max. 6
   threadCount: number;
   unread: boolean;
-  extracted?: { accion: string; urgencia: "alta"|"media"|"baja"; fechaLimite?: string }; // ISO yyyy-MM-dd
+  extracted?: { action: string; urgency: "high"|"medium"|"low"; dueDate?: string }; // ISO yyyy-MM-dd
   summary?: string;
 };
 ```
 
 `CONFIDENCE_THRESHOLD = 0.55`. **The threshold rule lives once, and it lives in the backend.**
-The server splits mail into five drawers (the 4 buckets + `duda`) and the front only asks for
+The server splits mail into five drawers (the 4 buckets + `unsure`) and the front only asks for
 the drawer it needs. `confidence` is returned anyway because the UI shows it, but the front
-does not filter on it. A message with `bucket: "responder"` and `confidence: 0.48` comes out
-of `?bucket=duda`, not `?bucket=responder`.
+does not filter on it. A message with `bucket: "reply"` and `confidence: 0.48` comes out
+of `?bucket=unsure`, not `?bucket=reply`.
 
 ### Endpoints
 
@@ -122,10 +122,10 @@ of `?bucket=duda`, not `?bucket=responder`.
 GET  /api/health
   → { "status": "ok", "version": "0.1.0" }
 
-GET  /api/emails?bucket=responder&limit=50&cursor=<opaque>
+GET  /api/emails?bucket=reply&limit=50&cursor=<opaque>
   → { "items": Email[], "nextCursor": string | null }
   Without `bucket` it returns everything. Order: date descending.
-  `bucket` accepts the 4 buckets PLUS `duda`. The confidence threshold is applied HERE, on
+  `bucket` accepts the 4 buckets PLUS `unsure`. The confidence threshold is applied HERE, on
   the server, never on the front: if the front filtered, the tile's number and the list's
   would stop matching, and `limit` would break (you ask for 50, 43 remain, the cursor moved 50).
   Invariant: the five drawers sum to the total, with no overlaps and no gaps.
@@ -140,10 +140,10 @@ PATCH /api/emails/{id}
   navigating with j/k: marking read on keyboard traversal would leave the whole inbox read
   without anything having been read.
   Deliberate side effect: going from unread to read increments `sender_stats.opened` once.
-  That is what separates `ruido` from `automatizado`, so every message opened improves triage.
+  That is what separates `noise` from `automated`, so every message opened improves triage.
 
 GET  /api/counts
-  → { "responder": N, "informativo": N, "automatizado": N, "ruido": N, "duda": N, "unread": N }
+  → { "reply": N, "fyi": N, "automated": N, "noise": N, "unsure": N, "unread": N }
   Feeds the five tiles on the main screen and the "N unread" in the header.
   Same SQL as the drawer filter: the tile's number is the number of messages that come out
   when you press it. Without this you would have to request all five drawers in full to
@@ -211,7 +211,7 @@ GET  /api/labels/pending
 
 POST /api/labels/apply
   → { "applied": N, "failed": M,
-      "results": [ { "emailId": "...", "ok": true, "folder": "LocalMail/Responder" },
+      "results": [ { "emailId": "...", "ok": true, "folder": "LocalMail/Reply" },
                    { "emailId": "...", "ok": false, "error": "..." } ] }
   The ONLY route that writes to the IMAP server, and only on the user's explicit confirmation.
   In batches, not one at a time: the front accumulates corrections and applies them all after
@@ -319,7 +319,7 @@ CREATE TABLE label_writes (
 
 CREATE TABLE extractions (
   email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
-  accion TEXT, urgencia TEXT, fecha_limite TEXT,
+  action TEXT, urgency TEXT, due_date TEXT,
   model TEXT NOT NULL, created_at TEXT NOT NULL
 );
 
@@ -440,9 +440,9 @@ produce valid JSON in free text; with a constrained grammar it gets it right pra
 Disable Qwen3's reasoning mode: it adds tens of seconds without improving the result.
 
 ```json
-{ "requiereRespuesta": true, "urgencia": "alta",
-  "accion": "Confirmar asistencia a la reunión del jueves",
-  "fechaLimite": "2026-11-06" }
+{ "needsReply": true, "urgency": "high",
+  "action": "Confirm attendance at Thursday's meeting",
+  "dueDate": "2026-11-06" }
 ```
 
 If Ollama is unavailable, **the product keeps working**: without `extracted` or `summary`, but

@@ -49,20 +49,20 @@ public static class SignalBaseline
 
         if (isMachine && !isPersonal)
         {
-            // "automatizado" and "ruido" are both machines. What separates them is not
+            // "automated" and "noise" are both machines. What separates them is not
             // the headers - both carry the same ones - but whether the user opens
             // them: the deploy notice gets read, the promotion does not. That is why
             // sender_stats.opened is needed.
             var neverOpened = ctx.SenderReceived >= 5 && ctx.SenderOpened == 0;
-            bucket = neverOpened ? Bucket.Ruido : Bucket.Automatizado;
+            bucket = neverOpened ? Bucket.Noise : Bucket.Automated;
         }
         else if (score >= 2)
         {
-            bucket = Bucket.Responder;
+            bucket = Bucket.Reply;
         }
         else
         {
-            bucket = Bucket.Informativo;
+            bucket = Bucket.Fyi;
         }
 
         return new Classification(bucket, Confidence(score, ctx), publicSignals);

@@ -44,10 +44,10 @@ not handle attachments, contacts or calendars. It computes labels and proposes t
 
 | Bucket | Meaning |
 |---|---|
-| `responder` | Someone is waiting for a reply from you |
-| `informativo` | Worth reading, no reply needed |
-| `automatizado` | Machine mail you actually read — deploys, tickets, bank notices |
-| `ruido` | Marketing and newsletters |
+| `reply` | Someone is waiting for a reply from you |
+| `fyi` | Worth reading, no reply needed |
+| `automated` | Machine mail you actually read — deploys, tickets, bank notices |
+| `noise` | Marketing and newsletters |
 
 Three behaviours matter as much as the buckets:
 
@@ -232,7 +232,7 @@ Base URL `http://127.0.0.1:5174`. JSON, camelCase, UTF-8. Binds to localhost onl
 | `POST /api/corrections/undo` | Undo the last correction |
 | `GET /api/model/status` | Example counts, precision, model availability |
 
-`bucket` accepts the four bucket names plus `duda` for below-threshold messages.
+`bucket` accepts the four bucket names plus `unsure` for below-threshold messages.
 Errors are `{"error": {"code", "message"}}` with the matching HTTP status.
 
 ## Security model
