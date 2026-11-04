@@ -5,21 +5,21 @@ using MimeKit;
 namespace LocalMailAI.Tests;
 
 /// <summary>
-/// Cabeceras (BACKEND.md §4) y senales deterministas (§6).
+/// Header facts (BACKEND.md §4) and deterministic signals (§6).
 ///
-/// Los casos estan calcados de src/lib/mock.ts a proposito: ese fichero es el
-/// contrato con el front y ya describe que senales deberia producir cada correo.
-/// Si el backend no coincide con sus fixtures, uno de los dos esta mal.
+/// The cases are copied from src/lib/mock.ts on purpose: that file is the contract
+/// with the frontend and already describes which signals each message should produce.
+/// If the backend disagrees with its fixtures, one of the two is wrong.
 /// </summary>
 public class SignalTests
 {
-    private static readonly IReadOnlySet<string> Yo =
+    private static readonly IReadOnlySet<string> Me =
         new HashSet<string> { "kevin@sagetasolutions.com" };
 
-    // --- Cabeceras -------------------------------------------------------------
+    // --- Headers ---------------------------------------------------------------
 
     [Fact]
-    public void La_raiz_del_hilo_es_el_primer_References()
+    public void The_thread_root_is_the_first_References_entry()
     {
         var f = Facts(
             """
@@ -39,7 +39,7 @@ public class SignalTests
     }
 
     [Fact]
-    public void Sin_References_la_raiz_es_el_In_Reply_To()
+    public void Without_References_the_root_is_In_Reply_To()
     {
         var f = Facts(
             """
@@ -55,7 +55,7 @@ public class SignalTests
     }
 
     [Fact]
-    public void Un_mensaje_suelto_es_la_raiz_de_su_propio_hilo()
+    public void A_standalone_message_is_the_root_of_its_own_thread()
     {
         var f = Facts(
             """
@@ -71,9 +71,9 @@ public class SignalTests
     }
 
     [Fact]
-    public void Sin_Message_ID_se_genera_uno_estable()
+    public void Without_a_Message_ID_a_stable_one_is_derived()
     {
-        // Un GUID nuevo en cada sync duplicaria la fila en cada pasada.
+        // A fresh GUID on every sync would duplicate the row on each pass.
         const string eml =
             """
             From: Ana <ana@estudiolegal.es>
@@ -89,7 +89,7 @@ public class SignalTests
     }
 
     [Fact]
-    public void Detecta_List_Unsubscribe()
+    public void Detects_List_Unsubscribe()
     {
         var f = Facts(
             """
@@ -109,22 +109,22 @@ public class SignalTests
     [InlineData("Precedence: bulk", true)]
     [InlineData("Precedence: normal", false)]
     [InlineData("List-Id: <avisos.github.com>", true)]
-    public void Reconoce_el_correo_automatico(string cabecera, bool esperado)
+    public void Recognises_automated_mail(string header, bool expected)
     {
         var f = Facts(
             $"""
             From: Jira <jira@sageta.atlassian.net>
             To: kevin@sagetasolutions.com
-            {cabecera}
+            {header}
 
             SAG-1182 cambio de estado
             """);
 
-        Assert.Equal(esperado, f.IsAutoSubmitted);
+        Assert.Equal(expected, f.IsAutoSubmitted);
     }
 
     [Fact]
-    public void Lee_spf_y_dkim_de_Authentication_Results()
+    public void Reads_spf_and_dkim_from_Authentication_Results()
     {
         var f = Facts(
             """
@@ -140,9 +140,9 @@ public class SignalTests
     }
 
     [Fact]
-    public void Sin_Authentication_Results_la_autenticacion_es_desconocida_no_fallida()
+    public void Without_Authentication_Results_authentication_is_unknown_not_failed()
     {
-        // No es lo mismo "ha fallado la verificacion" que "nadie la ha hecho".
+        // "the check failed" and "nobody ran the check" are not the same thing.
         var f = Facts(
             """
             From: Ana <ana@estudiolegal.es>
@@ -156,7 +156,7 @@ public class SignalTests
     }
 
     [Fact]
-    public void Un_spf_fallido_se_distingue_de_un_spf_ausente()
+    public void A_failed_spf_is_distinguishable_from_an_absent_one()
     {
         var f = Facts(
             """
@@ -177,21 +177,21 @@ public class SignalTests
     [InlineData("do.not.reply@banco.es", true)]
     [InlineData("facturacion@nordia-cloud.com", false)]
     [InlineData("ana.molina@estudiolegal.es", false)]
-    public void Reconoce_las_direcciones_no_reply(string direccion, bool esperado)
+    public void Recognises_no_reply_addresses(string address, bool expected)
     {
         var f = Facts(
             $"""
-            From: Remitente <{direccion}>
+            From: Remitente <{address}>
             To: kevin@sagetasolutions.com
 
             Cuerpo
             """);
 
-        Assert.Equal(esperado, f.IsNoReplyAddress);
+        Assert.Equal(expected, f.IsNoReplyAddress);
     }
 
     [Fact]
-    public void Las_direcciones_se_guardan_en_minusculas()
+    public void Addresses_are_stored_lowercase()
     {
         var f = Facts(
             """
@@ -208,13 +208,14 @@ public class SignalTests
         Assert.Equal(2, f.RecipientCount);
     }
 
-    // --- Senales y clasificacion provisional -----------------------------------
+    // --- Signals and provisional classification ---------------------------------
 
     [Fact]
-    public void Correo_de_Ana_requiere_respuesta()
+    public void A_message_from_a_known_contact_asking_a_question_needs_a_reply()
     {
-        // mock.ts e1: responder, 0.94, con "Le has respondido 12 veces",
-        // "Vas en Para:, no en Cc:", "Termina en pregunta directa", "Hilo en el que ya participas".
+        // mock.ts e1: responder, 0.94, with "Le has respondido 12 veces",
+        // "Vas en Para:, no en Cc:", "Termina en pregunta directa",
+        // "Hilo en el que ya participas".
         var f = Facts(
             """
             From: Ana Molina <ana.molina@estudiolegal.es>
@@ -228,29 +229,29 @@ public class SignalTests
 
         var ctx = new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             SenderReceived = 24,
             SenderReplied = 12,
             IParticipatesInThread = true,
             CleanBody = "Te viene bien a las 10 en lugar de las 9?",
         };
 
-        var senales = DeterministicSignals.Compute(f, ctx);
-        var c = SignalBaseline.Classify(senales, ctx);
+        var signals = DeterministicSignals.Compute(f, ctx);
+        var c = SignalBaseline.Classify(signals, ctx);
 
         Assert.Equal(Bucket.Responder, c.Bucket);
         Assert.True(c.Confidence > SignalBaseline.ConfidenceThreshold);
-        Assert.Contains(senales, s => s.Kind == SignalKind.RepliedBefore && s.Label == "Le has respondido 12 veces");
-        Assert.Contains(senales, s => s.Kind == SignalKind.ToNotCc);
-        Assert.Contains(senales, s => s.Kind == SignalKind.EndsWithQuestion);
-        Assert.Contains(senales, s => s.Kind == SignalKind.ThreadParticipant);
+        Assert.Contains(signals, s => s.Kind == SignalKind.RepliedBefore && s.Label == "Le has respondido 12 veces");
+        Assert.Contains(signals, s => s.Kind == SignalKind.ToNotCc);
+        Assert.Contains(signals, s => s.Kind == SignalKind.EndsWithQuestion);
+        Assert.Contains(signals, s => s.Kind == SignalKind.ThreadParticipant);
     }
 
     [Fact]
-    public void Un_remitente_desconocido_queda_por_debajo_del_umbral()
+    public void An_unknown_sender_stays_below_the_threshold()
     {
-        // mock.ts e2: confianza 0.48, por debajo de UMBRAL_CONFIANZA. El sistema
-        // admite que no sabe en vez de adivinar.
+        // mock.ts e2: confidence 0.48, below UMBRAL_CONFIANZA. The system admits it
+        // does not know rather than guessing.
         var f = Facts(
             """
             From: Facturacion Nordia <facturacion@nordia-cloud.com>
@@ -260,19 +261,19 @@ public class SignalTests
             Cuerpo
             """);
 
-        var ctx = new SignalContext { OwnAddresses = Yo, SenderReceived = 0, CleanBody = "La factura vence el 10/11." };
-        var senales = DeterministicSignals.Compute(f, ctx);
-        var c = SignalBaseline.Classify(senales, ctx);
+        var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 0, CleanBody = "La factura vence el 10/11." };
+        var signals = DeterministicSignals.Compute(f, ctx);
+        var c = SignalBaseline.Classify(signals, ctx);
 
-        Assert.Contains(senales, s => s.Kind == SignalKind.NewSender);
+        Assert.Contains(signals, s => s.Kind == SignalKind.NewSender);
         Assert.True(c.Confidence < SignalBaseline.ConfidenceThreshold,
-            $"confianza {c.Confidence} deberia estar por debajo de {SignalBaseline.ConfidenceThreshold}");
+            $"confidence {c.Confidence} should be below {SignalBaseline.ConfidenceThreshold}");
     }
 
     [Fact]
-    public void Una_newsletter_que_nunca_se_abre_es_ruido()
+    public void A_newsletter_that_is_never_opened_is_noise()
     {
-        // mock.ts e12: ruido. List-Unsubscribe y nunca abierta.
+        // mock.ts e12: ruido. List-Unsubscribe and never opened.
         var f = Facts(
             """
             From: Marketing Zentrix <newsletter@zentrix.io>
@@ -283,17 +284,17 @@ public class SignalTests
             Cuerpo
             """);
 
-        var ctx = new SignalContext { OwnAddresses = Yo, SenderReceived = 38, SenderOpened = 0 };
+        var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 38, SenderOpened = 0 };
         var c = SignalBaseline.Classify(DeterministicSignals.Compute(f, ctx), ctx);
 
         Assert.Equal(Bucket.Ruido, c.Bucket);
     }
 
     [Fact]
-    public void Un_aviso_de_maquina_que_si_se_lee_es_automatizado_no_ruido()
+    public void Machine_mail_that_does_get_read_is_automated_not_noise()
     {
-        // mock.ts e9 (Vercel): automatizado, no ruido, aunque lleve las mismas
-        // cabeceras que la newsletter. Lo que las separa es que este se abre.
+        // mock.ts e9 (Vercel): automatizado, not ruido, despite carrying the same
+        // headers as the newsletter. What separates them is that this one gets opened.
         var f = Facts(
             """
             From: Vercel <no-reply@vercel.com>
@@ -304,16 +305,16 @@ public class SignalTests
             Cuerpo
             """);
 
-        var ctx = new SignalContext { OwnAddresses = Yo, SenderReceived = 212, SenderOpened = 180 };
+        var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 212, SenderOpened = 180 };
         var c = SignalBaseline.Classify(DeterministicSignals.Compute(f, ctx), ctx);
 
         Assert.Equal(Bucket.Automatizado, c.Bucket);
     }
 
     [Fact]
-    public void Una_senal_personal_gana_a_las_marcas_de_maquina()
+    public void A_personal_signal_outranks_machine_markers()
     {
-        // mock.ts e5: GitHub es un remitente automatizado y aun asi pide revision.
+        // mock.ts e5: GitHub is an automated sender and still asks for a review.
         var f = Facts(
             """
             From: GitHub <notifications@github.com>
@@ -326,7 +327,7 @@ public class SignalTests
 
         var ctx = new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             SenderReceived = 300,
             SenderReplied = 4,
             IParticipatesInThread = true,
@@ -338,9 +339,9 @@ public class SignalTests
     }
 
     [Fact]
-    public void Ir_en_Cc_es_senal_negativa()
+    public void Being_in_Cc_is_a_negative_signal()
     {
-        // mock.ts e6: informativo, con "Vas en Cc:, no en Para:" en negativo.
+        // mock.ts e6: informativo, with "Vas en Cc:, no en Para:" as negative.
         var f = Facts(
             """
             From: Marta Ruiz <marta.ruiz@universidadsur.edu>
@@ -351,17 +352,17 @@ public class SignalTests
             Cuerpo
             """);
 
-        var ctx = new SignalContext { OwnAddresses = Yo, SenderReceived = 12, SenderOpened = 9 };
-        var senales = DeterministicSignals.Compute(f, ctx);
-        var c = SignalBaseline.Classify(senales, ctx);
+        var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 12, SenderOpened = 9 };
+        var signals = DeterministicSignals.Compute(f, ctx);
+        var c = SignalBaseline.Classify(signals, ctx);
 
-        Assert.Contains(senales, s => s.Kind == SignalKind.CcNotTo && s.Weight < 0);
-        Assert.Equal("neg", senales.First(s => s.Kind == SignalKind.CcNotTo).ToSignal().Sign);
+        Assert.Contains(signals, s => s.Kind == SignalKind.CcNotTo && s.Weight < 0);
+        Assert.Equal("neg", signals.First(s => s.Kind == SignalKind.CcNotTo).ToSignal().Sign);
         Assert.Equal(Bucket.Informativo, c.Bucket);
     }
 
     [Fact]
-    public void El_tercer_mensaje_sin_respuesta_pesa_lo_maximo()
+    public void A_third_unanswered_message_carries_the_maximum_weight()
     {
         // mock.ts e16: responder, 0.95, "Tercer mensaje sin respuesta tuya".
         var f = Facts(
@@ -375,23 +376,23 @@ public class SignalTests
 
         var ctx = new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             SenderReceived = 47,
             SenderReplied = 20,
             ConsecutiveUnanswered = 3,
             CleanBody = "Seguimos sin respuesta del equipo tecnico. Hay alguna novedad?",
         };
 
-        var senales = DeterministicSignals.Compute(f, ctx);
-        var c = SignalBaseline.Classify(senales, ctx);
+        var signals = DeterministicSignals.Compute(f, ctx);
+        var c = SignalBaseline.Classify(signals, ctx);
 
-        Assert.Contains(senales, s => s.Kind == SignalKind.ThirdUnanswered && s.Weight == 3);
+        Assert.Contains(signals, s => s.Kind == SignalKind.ThirdUnanswered && s.Weight == 3);
         Assert.Equal(Bucket.Responder, c.Bucket);
-        Assert.True(c.Confidence >= 0.9, $"confianza {c.Confidence}");
+        Assert.True(c.Confidence >= 0.9, $"confidence {c.Confidence}");
     }
 
     [Fact]
-    public void Nunca_mas_de_seis_senales_y_ordenadas_por_peso()
+    public void Never_more_than_six_signals_and_always_ordered_by_weight()
     {
         var f = Facts(
             """
@@ -407,7 +408,7 @@ public class SignalTests
 
         var ctx = new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             OrgDomain = "sagetasolutions.com",
             SenderReceived = 60,
             SenderReplied = 31,
@@ -416,18 +417,19 @@ public class SignalTests
             CleanBody = "Puedes revisarlo?",
         };
 
-        var senales = DeterministicSignals.Compute(f, ctx);
+        var signals = DeterministicSignals.Compute(f, ctx);
 
-        Assert.Equal(6, senales.Count);
+        Assert.Equal(6, signals.Count);
 
-        var pesos = senales.Select(s => Math.Abs(s.Weight)).ToArray();
-        Assert.Equal(pesos.OrderByDescending(p => p), pesos);
+        var weights = signals.Select(s => Math.Abs(s.Weight)).ToArray();
+        Assert.Equal(weights.OrderByDescending(w => w), weights);
     }
 
     [Fact]
-    public void Con_poco_historial_no_se_afirma_que_nunca_has_respondido()
+    public void With_little_history_it_does_not_claim_you_never_replied()
     {
-        // "Nunca lo has respondido (0 de 2)" no dice nada: puede que no haya habido ocasion.
+        // "Nunca lo has respondido (0 de 2)" says nothing: there may never have been
+        // an occasion.
         var f = Facts(
             """
             From: Lucia <lucia@herrera-asesoria.es>
@@ -436,14 +438,14 @@ public class SignalTests
             Cuerpo
             """);
 
-        var ctx = new SignalContext { OwnAddresses = Yo, SenderReceived = 2, SenderReplied = 0 };
-        var senales = DeterministicSignals.Compute(f, ctx);
+        var ctx = new SignalContext { OwnAddresses = Me, SenderReceived = 2, SenderReplied = 0 };
+        var signals = DeterministicSignals.Compute(f, ctx);
 
-        Assert.DoesNotContain(senales, s => s.Kind == SignalKind.NeverReplied);
+        Assert.DoesNotContain(signals, s => s.Kind == SignalKind.NeverReplied);
     }
 
     [Fact]
-    public void La_pregunta_retorica_del_principio_no_cuenta()
+    public void A_rhetorical_question_at_the_start_does_not_count()
     {
         var f = Facts(
             """
@@ -455,7 +457,7 @@ public class SignalTests
 
         var ctx = new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             SenderReceived = 38,
             CleanBody = "Sabias que puedes duplicar tu productividad?\n\nDescubre las herramientas.\nApuntate ya.",
         };

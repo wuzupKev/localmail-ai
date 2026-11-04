@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Referencia de tokenizacion en Python para el hito 0 (BACKEND.md §10).
+"""Python tokenisation reference for milestone 0 (BACKEND.md §10).
 
-Cuaderno de laboratorio: NO se distribuye. El producto es .NET puro.
+Lab notebook: NOT shipped. The product is pure .NET.
 
-Descarga el tokenizer de multilingual-e5-small UNA vez a backend/models/ y
-tokeniza el corpus. C# despues lee EXACTAMENTE ese mismo tokenizer.json: si cada
-lado se trajera el suyo, la prueba no probaria nada.
+Downloads the multilingual-e5-small tokenizer ONCE into backend/models/ and
+tokenises the corpus. C# then reads EXACTLY that same tokenizer.json: if each
+side fetched its own, the test would prove nothing.
 
-Volcamos los IDs con y sin tokens especiales. Si Tokenizers.DotNet discrepa, hay
-que poder distinguir "pone los especiales en otro sitio" (trivial) de "segmenta
-el texto distinto" (mortal: los embeddings se degradan en silencio).
+The ids are dumped with and without special tokens. If Tokenizers.DotNet
+disagrees, it has to be possible to tell "it puts the specials somewhere else"
+(trivial) apart from "it segments the text differently" (fatal: embeddings
+degrade silently).
 
-Salida: reference_ids.json
+Output: reference_ids.json
 """
 import hashlib
 import json
@@ -38,11 +39,11 @@ def main() -> None:
     fichero_tok = DIR_MODELO / "tokenizer.json"
     if not fichero_tok.exists():
         raise SystemExit(
-            "no se ha guardado tokenizer.json: sin el, Tokenizers.DotNet no tiene nada que leer"
+            "tokenizer.json was not written: without it Tokenizers.DotNet has nothing to read"
         )
 
-    # El normalizador es la causa habitual de divergencia: dejarlo registrado
-    # ahorra horas de depuracion si manana los IDs se mueven.
+    # The normaliser is the usual cause of divergence: recording it saves hours
+    # of debugging if the ids move tomorrow.
     cfg = json.loads(fichero_tok.read_text(encoding="utf-8"))
     normalizador = cfg.get("normalizer")
     pretokenizador = cfg.get("pre_tokenizer")
@@ -62,7 +63,7 @@ def main() -> None:
             }
         )
 
-    salida = {
+    output = {
         "model": MODELO,
         "tokenizerClass": type(tok).__name__,
         "tokenizerJsonSha256": sha256(fichero_tok),
@@ -80,15 +81,15 @@ def main() -> None:
         "items": items,
     }
 
-    destino = AQUI / "reference_ids.json"
-    destino.write_text(json.dumps(salida, ensure_ascii=False, indent=2), encoding="utf-8")
+    destination = AQUI / "reference_ids.json"
+    destination.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
 
     total = sum(len(i["idsNoSpecial"]) for i in items)
     print(f"tokenizer: {type(tok).__name__} (vocab {tok.vocab_size})")
-    print(f"normalizador: {salida['normalizerType']} / pre: {salida['preTokenizerType']}")
-    print(f"especiales: bos={salida['specialTokens']['bos']} eos={salida['specialTokens']['eos']}")
-    print(f"sha256(tokenizer.json): {salida['tokenizerJsonSha256'][:16]}...")
-    print(f"reference_ids.json: {len(items)} textos, {total} tokens sin especiales")
+    print(f"normaliser: {output['normalizerType']} / pre: {output['preTokenizerType']}")
+    print(f"specials: bos={output['specialTokens']['bos']} eos={output['specialTokens']['eos']}")
+    print(f"sha256(tokenizer.json): {output['tokenizerJsonSha256'][:16]}...")
+    print(f"reference_ids.json: {len(items)} texts, {total} tokens without specials")
 
 
 if __name__ == "__main__":

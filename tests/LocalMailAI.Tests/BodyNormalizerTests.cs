@@ -4,18 +4,21 @@ using MimeKit;
 namespace LocalMailAI.Tests;
 
 /// <summary>
-/// Normalizacion de cuerpos (BACKEND.md §5, etapa 3).
+/// Body normalisation (BACKEND.md §5, stage 3).
 ///
-/// Los casos salen de clientes reales: Gmail parte la atribucion por el ancho,
-/// Outlook incrusta un bloque de cabeceras, Apple Mail mete "Enviado desde mi
-/// iPhone". Cada test de abajo es un cliente haciendo algo distinto.
+/// The cases come from real clients: Gmail wraps the attribution line, Outlook embeds
+/// a header block, Apple Mail appends "Enviado desde mi iPhone". Each test below is a
+/// different client doing a different thing.
+///
+/// The sample text is Spanish because that is the mail the product normalises; the
+/// rules match Spanish wording and translating the fixtures would stop testing them.
 /// </summary>
 public class BodyNormalizerTests
 {
-    // --- Citas -----------------------------------------------------------------
+    // --- Quotes ----------------------------------------------------------------
 
     [Fact]
-    public void Corta_en_la_atribucion_en_espanol()
+    public void Cuts_at_the_Spanish_attribution_line()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -33,9 +36,9 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_aunque_el_cliente_parta_la_atribucion_en_varias_lineas()
+    public void Cuts_even_when_the_client_wraps_the_attribution_across_lines()
     {
-        // Gmail hace exactamente esto cuando el nombre y la direccion no caben.
+        // Gmail does exactly this when the name and address do not fit.
         var r = BodyNormalizer.Normalize(
             """
             Confirmado.
@@ -49,7 +52,7 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_en_la_atribucion_en_ingles()
+    public void Cuts_at_the_English_attribution_line()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -63,7 +66,7 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_en_el_separador_de_mensaje_original()
+    public void Cuts_at_the_original_message_separator()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -80,7 +83,7 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_en_el_bloque_de_cabeceras_que_incrusta_Outlook()
+    public void Cuts_at_the_header_block_Outlook_embeds()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -98,9 +101,9 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Quita_las_lineas_citadas_de_una_respuesta_intercalada()
+    public void Removes_quoted_lines_from_an_inline_reply()
     {
-        // Sin atribucion: el usuario ha respondido entre las lineas del otro.
+        // No attribution: the user replied between the other person's lines.
         var r = BodyNormalizer.Normalize(
             """
             > Puedes el jueves a las 10?
@@ -113,10 +116,10 @@ public class BodyNormalizerTests
         Assert.Equal(2, r.QuotedLinesRemoved);
     }
 
-    // --- Firmas ----------------------------------------------------------------
+    // --- Signatures --------------------------------------------------------------
 
     [Fact]
-    public void Corta_en_el_delimitador_estandar()
+    public void Cuts_at_the_standard_delimiter()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -133,7 +136,7 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_el_bloque_de_contacto_del_final_sin_delimitador()
+    public void Cuts_a_trailing_contact_block_with_no_delimiter()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -152,7 +155,7 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_la_firma_del_movil()
+    public void Cuts_the_mobile_signature()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -166,7 +169,7 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Corta_el_descargo_legal()
+    public void Cuts_the_legal_disclaimer()
     {
         var r = BodyNormalizer.Normalize(
             """
@@ -182,9 +185,10 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void No_confunde_contenido_con_descargo_por_la_palabra_confidencial()
+    public void Does_not_mistake_content_for_a_disclaimer_because_of_one_word()
     {
-        // "confidencial" en el primer parrafo es el asunto del correo, no una firma.
+        // "confidencial" in the first paragraph is the subject of the message, not a
+        // signature.
         var r = BodyNormalizer.Normalize(
             """
             El informe es confidencial, no lo reenvies fuera del equipo.
@@ -196,19 +200,20 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void No_se_come_el_mensaje_entero_cuando_el_mensaje_es_un_dato_de_contacto()
+    public void Does_not_eat_the_whole_message_when_the_message_is_a_contact_detail()
     {
-        // Peor fallo posible del heuristico: dejar el cuerpo vacio. Ante la duda, conservar.
+        // Worst possible failure of the heuristic: leaving the body empty. When in
+        // doubt, keep the text.
         var r = BodyNormalizer.Normalize("Mi telefono es +34 611 22 33 44, llamame cuando puedas.");
 
         Assert.Contains("611 22 33 44", r.Clean);
         Assert.Equal(0, r.SignatureLinesRemoved);
     }
 
-    // --- HTML ------------------------------------------------------------------
+    // --- HTML --------------------------------------------------------------------
 
     [Fact]
-    public void Convierte_html_a_texto_y_decodifica_entidades()
+    public void Converts_html_to_text_and_decodes_entities()
     {
         var r = BodyNormalizer.Normalize(
             BodyNormalizer.HtmlToText(
@@ -219,9 +224,9 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void El_blockquote_de_gmail_se_trata_como_cita_y_desaparece()
+    public void The_Gmail_blockquote_is_treated_as_a_quote_and_disappears()
     {
-        var texto = BodyNormalizer.HtmlToText(
+        var text = BodyNormalizer.HtmlToText(
             """
             <div>Confirmado, nos vemos el jueves.</div>
             <blockquote class="gmail_quote">
@@ -230,25 +235,25 @@ public class BodyNormalizerTests
             </blockquote>
             """);
 
-        var r = BodyNormalizer.Normalize(texto, "html");
+        var r = BodyNormalizer.Normalize(text, "html");
 
         Assert.Equal("Confirmado, nos vemos el jueves.", r.Clean);
         Assert.True(r.QuotedLinesRemoved > 0);
     }
 
     [Fact]
-    public void Descarta_script_y_style()
+    public void Discards_script_and_style()
     {
-        var texto = BodyNormalizer.HtmlToText(
+        var text = BodyNormalizer.HtmlToText(
             "<style>.x{color:red}</style><p>Oferta del mes</p><script>alert(1)</script>");
 
-        Assert.DoesNotContain("color:red", texto);
-        Assert.DoesNotContain("alert", texto);
-        Assert.Contains("Oferta del mes", texto);
+        Assert.DoesNotContain("color:red", text);
+        Assert.DoesNotContain("alert", text);
+        Assert.Contains("Oferta del mes", text);
     }
 
     [Fact]
-    public void El_br_separa_lineas()
+    public void A_br_separates_lines()
     {
         var r = BodyNormalizer.Normalize(
             BodyNormalizer.HtmlToText("Entregas cerradas: 7<br>Incidencias abiertas: 3<br/>Demo: 12 nov"),
@@ -257,10 +262,10 @@ public class BodyNormalizerTests
         Assert.Equal("Entregas cerradas: 7\nIncidencias abiertas: 3\nDemo: 12 nov", r.Clean);
     }
 
-    // --- Basura invisible ------------------------------------------------------
+    // --- Invisible junk ------------------------------------------------------------
 
     [Fact]
-    public void Los_espacios_raros_pasan_a_espacio_normal()
+    public void Unusual_spaces_become_ordinary_spaces()
     {
         var r = BodyNormalizer.Normalize("Importe: 348,00 € y nada​mas");
 
@@ -270,18 +275,19 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Conserva_los_emoji_compuestos()
+    public void Composed_emoji_survive()
     {
-        // El ZWJ (‍) mantiene unido el emoji de familia. Si se limpiara como
-        // "invisible que estorba", el emoji se partiria en cuatro personas sueltas.
-        const string familia = "\U0001f468‍\U0001f469‍\U0001f467";
-        var r = BodyNormalizer.Normalize($"Enhorabuena {familia} por el nacimiento");
+        // The ZWJ (‍) is what holds the family emoji together. If it were
+        // stripped as "invisible junk", the emoji would split into four separate
+        // people.
+        const string family = "\U0001f468‍\U0001f469‍\U0001f467";
+        var r = BodyNormalizer.Normalize($"Enhorabuena {family} por el nacimiento");
 
-        Assert.Contains(familia, r.Clean);
+        Assert.Contains(family, r.Clean);
     }
 
     [Fact]
-    public void Colapsa_lineas_vacias_repetidas()
+    public void Repeated_blank_lines_are_collapsed()
     {
         var r = BodyNormalizer.Normalize("Primero\n\n\n\n\nSegundo");
 
@@ -289,30 +295,30 @@ public class BodyNormalizerTests
         Assert.Equal(2, r.Paragraphs.Length);
     }
 
-    // --- Preview y parrafos ----------------------------------------------------
+    // --- Preview and paragraphs ------------------------------------------------------
 
     [Fact]
-    public void El_preview_se_corta_por_palabra_y_no_pasa_de_144()
+    public void The_preview_cuts_on_a_word_and_stays_under_144()
     {
-        var largo = string.Join(' ', Enumerable.Repeat("palabra", 60));
-        var r = BodyNormalizer.Normalize(largo);
+        var longText = string.Join(' ', Enumerable.Repeat("palabra", 60));
+        var r = BodyNormalizer.Normalize(longText);
 
-        Assert.True(r.Preview.Length <= 144, $"preview de {r.Preview.Length} caracteres");
+        Assert.True(r.Preview.Length <= 144, $"preview is {r.Preview.Length} characters");
         Assert.EndsWith("...", r.Preview);
-        Assert.DoesNotContain("palabr...", r.Preview);  // no corta a mitad de palabra
+        Assert.DoesNotContain("palabr...", r.Preview);  // does not cut mid-word
     }
 
     [Fact]
-    public void El_preview_no_parte_un_emoji_por_la_mitad()
+    public void The_preview_does_not_split_an_emoji()
     {
-        // Relleno que deja un emoji justo en el limite de los 140.
+        // Filler that leaves an emoji right at the 140 mark.
         var r = BodyNormalizer.Normalize(new string('a', 139) + "\U0001f525" + new string('b', 50));
 
-        Assert.False(char.IsHighSurrogate(r.Preview[^4]), "el preview termina en un subrogado suelto");
+        Assert.False(char.IsHighSurrogate(r.Preview[^4]), "the preview ends in a lone surrogate");
     }
 
     [Fact]
-    public void El_preview_va_en_una_sola_linea()
+    public void The_preview_is_a_single_line()
     {
         var r = BodyNormalizer.Normalize("Primera linea\n\nSegunda linea");
 
@@ -320,12 +326,12 @@ public class BodyNormalizerTests
         Assert.Equal("Primera linea Segunda linea", r.Preview);
     }
 
-    // --- Mensajes MIME completos -----------------------------------------------
+    // --- Whole MIME messages ---------------------------------------------------------
 
     [Fact]
-    public void Prefiere_text_plain_sobre_text_html()
+    public void Prefers_text_plain_over_text_html()
     {
-        var msg = Cargar(
+        var msg = Load(
             """
             From: Ana Molina <ana@estudiolegal.es>
             To: kevin@sageta.com
@@ -350,9 +356,9 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Usa_el_html_cuando_no_hay_texto_plano()
+    public void Falls_back_to_html_when_there_is_no_plain_text()
     {
-        var msg = Cargar(
+        var msg = Load(
             """
             From: Marketing Zentrix <newsletter@zentrix.io>
             To: kevin@sageta.com
@@ -369,9 +375,9 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Un_mensaje_sin_cuerpo_no_revienta()
+    public void A_message_with_no_body_does_not_blow_up()
     {
-        var msg = Cargar(
+        var msg = Load(
             """
             From: Vercel <no-reply@vercel.com>
             To: kevin@sageta.com
@@ -388,10 +394,10 @@ public class BodyNormalizerTests
     }
 
     [Fact]
-    public void Un_charset_mentiroso_se_registra_pero_no_falla()
+    public void A_lying_charset_is_tolerated_rather_than_fatal()
     {
-        // §11: MimeKit aguanta bastante, pero hay correo roto. No fallar nunca.
-        var msg = Cargar(
+        // §11: MimeKit copes with a lot, but broken mail exists. Never fail.
+        var msg = Load(
             """
             From: Facturacion <facturacion@nordia-cloud.com>
             To: kevin@sageta.com
@@ -406,7 +412,7 @@ public class BodyNormalizerTests
         Assert.False(string.IsNullOrEmpty(r.Clean));
     }
 
-    private static MimeMessage Cargar(string eml)
+    private static MimeMessage Load(string eml)
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(eml.ReplaceLineEndings("\r\n"));
         using var ms = new MemoryStream(bytes);

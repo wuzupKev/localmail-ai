@@ -1,25 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Construye el corpus de paridad del hito 0 (BACKEND.md §10).
+"""Builds the milestone 0 parity corpus (BACKEND.md §10).
 
-Cuaderno de laboratorio: NO se distribuye. El producto es .NET puro.
+Lab notebook: NOT shipped. The product is pure .NET.
 
-El corpus mezcla dos cosas a proposito:
-  - Texto de correo realista, tomado de src/lib/mock.ts (cuerpos, asuntos,
-    remitentes). Es el espanol real que vera el modelo en produccion.
-  - Casos borde que son los que de verdad rompen un tokenizer SentencePiece:
-    diacriticos descompuestos (NFD) frente a precompuestos (NFC), espacios no
-    separables, anchura cero, mojibake, emoji con modificadores, URLs, importes,
-    CJK/cirilico (el modelo es multilingue), y los prefijos "query:"/"passage:"
-    que exige e5 y que por tanto SI entran al tokenizer en produccion.
+The corpus deliberately mixes two things:
+  - Realistic mail text taken from src/lib/mock.ts (bodies, subjects, senders).
+    This is the real Spanish the model will see in production.
+  - Edge cases that actually break a SentencePiece tokenizer: decomposed
+    diacritics (NFD) versus precomposed (NFC), non-breaking and zero-width
+    spaces, mojibake, emoji with modifiers, URLs, amounts, CJK and Cyrillic
+    (the model is multilingual), and the "query:"/"passage:" prefixes e5
+    requires, which therefore DO reach the tokenizer in production.
 
-Salida: corpus.json con exactamente 100 entradas {id, text}.
+The sample texts stay in Spanish on purpose: they are the mail the tokenizer has
+to handle, and translating them would stop testing what matters.
+
+Output: corpus.json with exactly 100 {id, text} entries.
 """
 import json
 import pathlib
 
-# --- 1. Texto de correo realista (origen: src/lib/mock.ts) ---------------------
+# --- 1. Realistic mail text (source: src/lib/mock.ts) -------------------------
 
-CUERPOS = [
+BODIES = [
     "Hola Kevin,\nTe viene bien a las 10 en lugar de las 9? Me ha surgido una vista a primera hora y no llego a tiempo.\nSi no puedes, lo dejamos para el viernes a la misma hora. Dime algo cuando puedas y lo cierro con el resto del equipo.\nUn saludo,\nAna",
     "Estimado cliente,\nLe recordamos que la factura F-2291 por importe de 348,00 EUR vence el 10/11/2026.\nPuede realizar el pago desde su area de cliente o mediante transferencia a la cuenta habitual.",
     "Kevin,\nNecesito los datos de consumo del Q3 antes del viernes para cerrar la propuesta del cliente.\nCon lo que me pasaste de Q2 no me cuadra el crecimiento, puedes revisarlo?\nGracias,\nDiego",
@@ -38,7 +41,7 @@ CUERPOS = [
     "Buenos dias,\nSeguimos sin respuesta del equipo tecnico sobre la incidencia del lunes. Hay alguna novedad?\nEs el tercer correo que envio sobre esto.",
 ]
 
-ASUNTOS = [
+SUBJECTS = [
     "Re: Confirmacion reunion del jueves",
     "Aviso de vencimiento - factura F-2291",
     "Propuesta migracion - faltan tus numeros del Q3",
@@ -57,7 +60,7 @@ ASUNTOS = [
     "Re: Re: Incidencia en produccion - seguimiento",
 ]
 
-REMITENTES = [
+SENDERS = [
     "Ana Molina <ana.molina@estudiolegal.es>",
     "Facturacion Nordia <facturacion@nordia-cloud.com>",
     "Diego Ferran <d.ferran@sagetasolutions.com>",
@@ -68,9 +71,9 @@ REMITENTES = [
     "soporte@proveedor-nuevo.com",
 ]
 
-# Espanol con acentos de verdad: mock.ts los lleva pelados, pero el correo real NO.
-# Esta es justamente la clase de texto donde un tokenizer mal cargado se desvia.
-ACENTUADO = [
+# Spanish with real accents: mock.ts strips them, but real mail does NOT. This is
+# exactly the kind of text where a badly loaded tokenizer drifts.
+ACCENTED = [
     "\u00bfTe viene bien a las 10 en lugar de las 9? Me ha surgido una vista a primera hora y no llego a tiempo.",
     "Estimado cliente: le recordamos que la factura F-2291 por importe de 348,00 \u20ac vence el 10/11/2026.",
     "Necesito los datos de consumo del Q3 antes del viernes. \u00bfPuedes revisarlo? Con lo de Q2 no me cuadra.",
@@ -81,7 +84,7 @@ ACENTUADO = [
     "Se\u00f1ores: ruego confirmaci\u00f3n de recepci\u00f3n. Atentamente, Jos\u00e9 \u00c1ngel Mu\u00f1oz Pe\u00f1a \u2014 Dpto. Administraci\u00f3n",
 ]
 
-CITAS_Y_FIRMAS = [
+QUOTES_AND_SIGNATURES = [
     "El 2 de noviembre de 2026, 9:14, Ana Molina <ana.molina@estudiolegal.es> escribi\u00f3:\n> Te confirmo la reuni\u00f3n del jueves a las 9.\n> Un saludo,\n> Ana",
     "-----Original Message-----\nFrom: Diego Ferran\nSent: Monday, November 2, 2026 8:02 AM\nTo: Kevin Chavarria\nSubject: RE: Propuesta\n\nNecesito los numeros del Q3.",
     "Gracias,\nDiego\n\n--\nDiego Ferr\u00e1n | Sageta Solutions\nTel. +34 611 22 33 44 | d.ferran@sagetasolutions.com\nAviso legal: este mensaje y sus anexos son confidenciales.",
@@ -89,34 +92,34 @@ CITAS_Y_FIRMAS = [
     "Sent from my iPhone\n\n> El 1 nov 2026, a las 22:10, soporte@proveedor-nuevo.com escribi\u00f3:\n>\n> Hemos recibido su solicitud.",
 ]
 
-# --- 2. Casos borde: lo que de verdad desvia los IDs --------------------------
+# --- 2. Edge cases: what actually shifts the ids ------------------------------
 
 EDGE = [
-    # Unicode: precompuesto (NFC) frente a descompuesto (NFD). Mismo texto a la
-    # vista, bytes distintos. Si el normalizador del tokenizer no se aplica
-    # igual en C# que en Python, es aqui donde se ve.
+    # Unicode: precomposed (NFC) versus decomposed (NFD). The same text to the
+    # eye, different bytes. If the tokenizer's normaliser is not applied the same
+    # way in C# as in Python, this is where it shows.
     "Facturaci\u00f3n pendiente: a\u00f1\u00e1deme en copia, Bego\u00f1a.",
     "Facturacio\u0301n pendiente: an\u0303a\u0301deme en copia, Bego\u0301n\u0303a.",
     "MAY\u00daSCULAS CON ACENTO: \u00c1\u00c9\u00cd\u00d3\u00da\u00d1\u00dc \u00bfPOR QU\u00c9 GRITAS?",
     "\ufb00 \ufb01 ligaduras y \u2460 \u2461 numeros encerrados y \u00bd fracciones",
     "\u216b numeral romano, \u33a1 metro cuadrado, \u2105 care of",
-    # Espacios raros: no separable, fino, anchura cero, tabulador, BOM.
+    # Unusual spaces: non-breaking, thin, zero-width, tab, BOM.
     "Importe:\u00a0348,00\u00a0\u20ac (espacio no separable)",
     "Firma\u2009con\u2009espacio\u2009fino y \u200bancho cero\u200b dentro",
     "Columna1\tColumna2\tColumna3\nValor1\tValor2\tValor3",
     "\ufeffAsunto con BOM al principio",
     "Multiples     espacios      seguidos   y\n\n\nsaltos\n\n\nrepetidos",
-    # Mojibake: UTF-8 leido como latin-1. MimeKit lo producira con los charsets
-    # mentirosos de los que avisa §11.
+    # Mojibake: UTF-8 read as latin-1. MimeKit will produce this from the lying
+    # charsets §11 warns about.
     "Facturaci\u00c3\u00b3n pendiente, a\u00c3\u00b1ade a Bego\u00c3\u00b1a en copia",
     "\u00c2\u00bfQu\u00c3\u00a9 tal? El d\u00c3\u00ada 3 vence el plazo",
     "Reuni\u00f3n\u001b(B rota con secuencia de escape",
-    # Emoji, incluidos los compuestos con ZWJ y los modificadores de tono.
+    # Emoji, including ZWJ-composed ones and skin tone modifiers.
     "Ultima oportunidad: -40% solo hoy \U0001f525\U0001f525 \u00a1corre!",
     "Enhorabuena \U0001f468\u200d\U0001f469\u200d\U0001f467\u200d\U0001f466 por el nacimiento \U0001f389 \u2014 del equipo \U0001f44b\U0001f3fd",
     "Reuni\u00f3n \u2705 confirmada, documento \U0001f4ce adjunto, \u26a0\ufe0f revisa el plazo",
     "\U0001f1ea\U0001f1f8 Equipo Espa\u00f1a vs \U0001f1ef\U0001f1f5 equipo Jap\u00f3n",
-    # Identificadores, URLs, rutas: aqui el correo es mas "codigo" que "lengua".
+    # Identifiers, URLs, paths: here mail is more "code" than "language".
     "Confirma en https://nordia-cloud.com/area-cliente/facturas?id=F-2291&utm_source=email&utm_campaign=aviso",
     "Clona con git@github.com:kevin/localmail-ai.git y revisa src/lib/mock.ts:142",
     "Ruta del log: C:\\Users\\KEVIN CHAVARRIA\\AppData\\Local\\LocalMailAI\\localmail.db",
@@ -127,7 +130,7 @@ EDGE = [
     "Fechas: 10/11/2026, 2026-11-10, 10-nov-2026, jueves 10 de noviembre de 2026",
     "Telefonos: +34 611 22 33 44, 0034911234567, 611-22-33-44",
     "SAG-1182, PR #14, ticket 00123456, v0.1.0, commit 3f2376a",
-    # Multilingue: el modelo es multilingual-e5-small, no solo espanol.
+    # Multilingual: the model is multilingual-e5-small, not Spanish only.
     "Please find attached the Q3 consumption data. Let me know if anything is unclear.",
     "Bonjour, je vous confirme la r\u00e9union de jeudi \u00e0 10h. Cordialement.",
     "Guten Tag, die Rechnung F-2291 \u00fcber 348,00 EUR ist am 10.11.2026 f\u00e4llig.",
@@ -138,13 +141,13 @@ EDGE = [
     "\u0417\u0434\u0440\u0430\u0432\u0441\u0442\u0432\u0443\u0439\u0442\u0435! \u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u044e \u0432\u0441\u0442\u0440\u0435\u0447\u0443 \u0432 \u0447\u0435\u0442\u0432\u0435\u0440\u0433 \u0432 10:00. \u0421 \u0443\u0432\u0430\u0436\u0435\u043d\u0438\u0435\u043c.",
     "\u0645\u0631\u062d\u0628\u0627\u060c \u0623\u0631\u0641\u0642 \u0644\u0643 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0631\u0628\u0639 \u0627\u0644\u062b\u0627\u0644\u062b. \u064a\u0631\u062c\u0649 \u0627\u0644\u062a\u0623\u0643\u064a\u062f \u0642\u0628\u0644 \u0627\u0644\u062c\u0645\u0639\u0629.",
     "\u039a\u03b1\u03bb\u03b7\u03bc\u03ad\u03c1\u03b1, \u03b5\u03c0\u03b9\u03b2\u03b5\u03b2\u03b1\u03b9\u03ce\u03bd\u03c9 \u03c4\u03b7 \u03c3\u03c5\u03bd\u03ac\u03bd\u03c4\u03b7\u03c3\u03b7 \u03c4\u03b7\u03c2 \u03a0\u03ad\u03bc\u03c0\u03c4\u03b7\u03c2 \u03c3\u03c4\u03b9\u03c2 10.",
-    # Prefijos de e5: entran al tokenizer en produccion (§8). Si fallan aqui,
-    # falla la busqueda entera y en silencio.
+    # e5 prefixes: these reach the tokenizer in production (§8). If they break
+    # here, the whole of search breaks, silently.
     "query: correos de Ana sobre la reuni\u00f3n del jueves",
     "query: factura F-2291 vencimiento",
     "passage: Te viene bien a las 10 en lugar de las 9? Me ha surgido una vista a primera hora.",
     "passage: Le recordamos que la factura F-2291 por importe de 348,00 \u20ac vence el 10/11/2026.",
-    # Degenerados: lo que rompe los limites del tokenizer.
+    # Degenerate cases: what breaks the tokenizer's boundaries.
     "",
     " ",
     "\n",
@@ -161,26 +164,26 @@ EDGE = [
 
 
 def main() -> None:
-    textos: list[str] = []
-    for grupo in (CUERPOS, ASUNTOS, REMITENTES, ACENTUADO, CITAS_Y_FIRMAS, EDGE):
-        textos.extend(grupo)
+    texts: list[str] = []
+    for group in (BODIES, SUBJECTS, SENDERS, ACCENTED, QUOTES_AND_SIGNATURES, EDGE):
+        texts.extend(group)
 
-    # Sin duplicados, preservando el orden: un duplicado no aporta cobertura.
-    vistos: set[str] = set()
-    unicos: list[str] = []
-    for t in textos:
-        if t not in vistos:
-            vistos.add(t)
-            unicos.append(t)
+    # Deduplicated, order preserved: a duplicate adds no coverage.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for t in texts:
+        if t not in seen:
+            seen.add(t)
+            unique.append(t)
 
-    if len(unicos) < 100:
-        raise SystemExit(f"corpus insuficiente: {len(unicos)} unicos, hacen falta 100")
+    if len(unique) < 100:
+        raise SystemExit(f"corpus too small: {len(unique)} unique, 100 required")
 
-    corpus = [{"id": f"c{i:03d}", "text": t} for i, t in enumerate(unicos[:100])]
+    corpus = [{"id": f"c{i:03d}", "text": t} for i, t in enumerate(unique[:100])]
 
-    destino = pathlib.Path(__file__).with_name("corpus.json")
-    destino.write_text(json.dumps(corpus, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"corpus.json: {len(corpus)} textos ({len(unicos)} unicos disponibles)")
+    destination = pathlib.Path(__file__).with_name("corpus.json")
+    destination.write_text(json.dumps(corpus, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"corpus.json: {len(corpus)} texts ({len(unique)} unique available)")
 
 
 if __name__ == "__main__":

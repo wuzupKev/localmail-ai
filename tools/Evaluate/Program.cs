@@ -1,17 +1,18 @@
-// Hito 5 de BACKEND.md §9: set de evaluacion y metricas por bucket.
+// Milestone 5 of BACKEND.md §9: evaluation set and per-bucket metrics.
 //
-// "El hito 5 no es opcional ni posterior: sin set de evaluacion no puedes saber si el
-// LLM aporta algo sobre las heuristicas, y estaras optimizando a ciegas."
+// "Milestone 5 is neither optional nor later: without an evaluation set you cannot
+// know whether the LLM adds anything over the heuristics, and you will be optimising
+// blind."
 //
-// Esta herramienta es el instrumento. Ingiere una carpeta de .eml en una base de datos
-// desechable, compara la clasificacion del sistema con las etiquetas de un fichero, y
-// guarda el resultado en eval_runs de la base real para que /api/model/status pueda
-// servir una precision medida en vez de una constante.
+// This is the instrument. It ingests a folder of .eml files into a throwaway database,
+// compares the system's classification against a label file, and records the result in
+// eval_runs of the real database so /api/model/status can serve a measured precision
+// instead of a constant.
 //
-// Uso:
+// Usage:
 //   dotnet run --project tools/Evaluate -- --emails fixtures --labels eval/fixtures-18.json
-//   ... --record-to <ruta.db>     donde anotar la pasada (por defecto, la BD del producto)
-//   ... --no-record               solo medir, sin guardar
+//   ... --record-to <path.db>     where to record the run (default: the product's database)
+//   ... --no-record               measure only, record nothing
 
 using System.Text;
 using System.Text.Json;
@@ -24,62 +25,62 @@ using MimeKit;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-var argumentos = LeerArgumentos(args);
+var arguments = ReadArguments(args);
 
-if (!argumentos.TryGetValue("emails", out var carpetaCorreos) ||
-    !argumentos.TryGetValue("labels", out var ficheroEtiquetas))
+if (!arguments.TryGetValue("emails", out var emailFolder) ||
+    !arguments.TryGetValue("labels", out var labelFile))
 {
-    Console.Error.WriteLine("uso: --emails <carpeta .eml> --labels <fichero .json> [--record-to <ruta.db> | --no-record]");
+    Console.Error.WriteLine("usage: --emails <folder of .eml> --labels <file.json> [--record-to <path.db> | --no-record]");
     return 2;
 }
 
-if (!Directory.Exists(carpetaCorreos))
+if (!Directory.Exists(emailFolder))
 {
-    Console.Error.WriteLine($"la carpeta {carpetaCorreos} no existe");
+    Console.Error.WriteLine($"folder {emailFolder} does not exist");
     return 2;
 }
 
-if (!File.Exists(ficheroEtiquetas))
+if (!File.Exists(labelFile))
 {
-    Console.Error.WriteLine($"el fichero de etiquetas {ficheroEtiquetas} no existe");
+    Console.Error.WriteLine($"label file {labelFile} does not exist");
     return 2;
 }
 
-// --- Etiquetas ---------------------------------------------------------------
+// --- Labels -------------------------------------------------------------------
 
-using var docEtiquetas = JsonDocument.Parse(File.ReadAllBytes(ficheroEtiquetas));
-var raiz = docEtiquetas.RootElement;
-var nombreSet = raiz.GetProperty("set").GetString() ?? "sin-nombre";
+using var labelDoc = JsonDocument.Parse(File.ReadAllBytes(labelFile));
+var labelRoot = labelDoc.RootElement;
+var setName = labelRoot.GetProperty("set").GetString() ?? "unnamed";
 
-// Por defecto NO representativo: hay que declararlo a proposito. Si el valor por
-// defecto fuera true, un set de pruebas acabaria en la interfaz del usuario por
-// olvido, que es la clase de error que nadie detecta.
-var representativo = raiz.TryGetProperty("representativo", out var rep) && rep.GetBoolean();
+// Not representative by default: it has to be declared deliberately. If the default
+// were true, a test set would reach the user's interface by omission, which is the
+// kind of mistake nobody catches.
+var representative = labelRoot.TryGetProperty("representativo", out var rep) && rep.GetBoolean();
 
-var etiquetas = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-foreach (var e in raiz.GetProperty("labels").EnumerateArray())
+var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+foreach (var e in labelRoot.GetProperty("labels").EnumerateArray())
 {
-    etiquetas[e.GetProperty("file").GetString()!] = e.GetProperty("bucket").GetString()!;
+    labels[e.GetProperty("file").GetString()!] = e.GetProperty("bucket").GetString()!;
 }
 
-Console.WriteLine($"set        : {nombreSet} ({etiquetas.Count} etiquetas, {(representativo ? "representativo" : "NO representativo: no llega a la interfaz")})");
+Console.WriteLine($"set        : {setName} ({labels.Count} labels, {(representative ? "representative" : "NOT representative: never reaches the UI")})");
 
-if (raiz.TryGetProperty("aviso", out var aviso))
+if (labelRoot.TryGetProperty("aviso", out var notice))
 {
     Console.WriteLine();
-    Console.WriteLine("AVISO DEL SET:");
-    foreach (var linea in Envolver(aviso.GetString() ?? string.Empty, 76))
+    Console.WriteLine("SET NOTICE:");
+    foreach (var line in Wrap(notice.GetString() ?? string.Empty, 76))
     {
-        Console.WriteLine($"  {linea}");
+        Console.WriteLine($"  {line}");
     }
     Console.WriteLine();
 }
 
-// --- Ingesta en una base desechable ------------------------------------------
-// Nunca sobre la base del usuario: medir no debe tocar sus datos.
+// --- Ingest into a throwaway database -------------------------------------------
+// Never the user's own: measuring must not touch their data.
 
-var rutaTemporal = Path.Combine(Path.GetTempPath(), $"localmail-eval-{Guid.NewGuid():N}.db");
-var db = new Database(rutaTemporal);
+var tempPath = Path.Combine(Path.GetTempPath(), $"localmail-eval-{Guid.NewGuid():N}.db");
+var db = new Database(tempPath);
 var ingestor = new EmailIngestor(NullLogger<EmailIngestor>.Instance);
 
 try
@@ -91,86 +92,86 @@ try
         await cn.ExecuteAsync(
             """
             INSERT INTO accounts (id, email, imap_host, imap_port, credential_key, created_at)
-            VALUES ('eval', 'kevin@sagetasolutions.com', 'localhost', 0, 'ninguna-evaluacion', @ahora)
+            VALUES ('eval', 'kevin@sagetasolutions.com', 'localhost', 0, 'none-evaluation', @now)
             """,
-            new { ahora = DateTimeOffset.UtcNow.ToString("O") });
+            new { now = DateTimeOffset.UtcNow.ToString("O") });
 
-        // En orden de nombre, que es el orden cronologico de las fixtures: el estado
-        // del hilo depende de en que orden entran los mensajes, igual que en un sync.
-        var ficheros = Directory.GetFiles(carpetaCorreos, "*.eml")
+        // In name order, which is chronological for the fixtures: thread state depends
+        // on the order messages arrive in, just as in a real sync.
+        var files = Directory.GetFiles(emailFolder, "*.eml")
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
 
-        var sinEtiqueta = new List<string>();
-        var predicciones = new List<(string Fichero, string Esperado, string? Obtenido, double Confianza)>();
+        var unlabelled = new List<string>();
+        var predictions = new List<(string File, string Expected, string? Produced, double Confidence)>();
 
-        foreach (var fichero in ficheros)
+        foreach (var file in files)
         {
-            var nombre = Path.GetFileName(fichero);
+            var name = Path.GetFileName(file);
 
-            if (!etiquetas.TryGetValue(nombre, out var esperado))
+            if (!labels.TryGetValue(name, out var expected))
             {
-                sinEtiqueta.Add(nombre);
+                unlabelled.Add(name);
                 continue;
             }
 
-            var mensaje = await MimeMessage.LoadAsync(fichero);
-            var r = await ingestor.IngestAsync(cn, "eval", mensaje, 0, "INBOX", new FileInfo(fichero).Length);
+            var message = await MimeMessage.LoadAsync(file);
+            var r = await ingestor.IngestAsync(cn, "eval", message, 0, "INBOX", new FileInfo(file).Length);
 
-            var fila = await cn.QuerySingleAsync<(string Bucket, double Confidence)>(
+            var row = await cn.QuerySingleAsync<(string Bucket, double Confidence)>(
                 "SELECT bucket, confidence FROM classifications WHERE email_id = @id",
                 new { id = r.EmailId });
 
-            predicciones.Add((nombre, esperado, fila.Bucket, fila.Confidence));
+            predictions.Add((name, expected, row.Bucket, row.Confidence));
         }
 
-        if (sinEtiqueta.Count > 0)
+        if (unlabelled.Count > 0)
         {
-            Console.WriteLine($"ADVERTENCIA: {sinEtiqueta.Count} correos sin etiqueta, excluidos de la medicion:");
-            foreach (var n in sinEtiqueta)
+            Console.WriteLine($"WARNING: {unlabelled.Count} messages have no label and are excluded:");
+            foreach (var n in unlabelled)
             {
                 Console.WriteLine($"  {n}");
             }
             Console.WriteLine();
         }
 
-        var faltantes = etiquetas.Keys.Except(predicciones.Select(p => p.Fichero), StringComparer.OrdinalIgnoreCase).ToList();
-        if (faltantes.Count > 0)
+        var missing = labels.Keys.Except(predictions.Select(p => p.File), StringComparer.OrdinalIgnoreCase).ToList();
+        if (missing.Count > 0)
         {
-            Console.WriteLine($"ADVERTENCIA: {faltantes.Count} etiquetas sin correo correspondiente:");
-            foreach (var n in faltantes)
+            Console.WriteLine($"WARNING: {missing.Count} labels have no matching message:");
+            foreach (var n in missing)
             {
                 Console.WriteLine($"  {n}");
             }
             Console.WriteLine();
         }
 
-        if (predicciones.Count == 0)
+        if (predictions.Count == 0)
         {
-            Console.Error.WriteLine("no hay ningun correo etiquetado que medir");
+            Console.Error.WriteLine("there is nothing labelled to measure");
             return 2;
         }
 
-        var informe = Medir(predicciones);
-        Imprimir(informe, predicciones);
+        var report = Measure(predictions);
+        Print(report, predictions);
 
-        // --- Anotar la pasada --------------------------------------------------
+        // --- Record the run -------------------------------------------------------
 
-        if (argumentos.ContainsKey("no-record"))
+        if (arguments.ContainsKey("no-record"))
         {
-            Console.WriteLine("pasada NO anotada (--no-record)");
+            Console.WriteLine("run NOT recorded (--no-record)");
             return 0;
         }
 
-        var rutaDestino = argumentos.TryGetValue("record-to", out var r2) && !string.IsNullOrWhiteSpace(r2)
+        var destinationPath = arguments.TryGetValue("record-to", out var r2) && !string.IsNullOrWhiteSpace(r2)
             ? r2
             : Database.ResolveDefaultPath(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
-        var destino = new Database(rutaDestino);
-        using var cnDestino = destino.Open();
-        new Migrator(NullLogger<Migrator>.Instance).Migrate(cnDestino);
+        var destination = new Database(destinationPath);
+        using var destinationCn = destination.Open();
+        new Migrator(NullLogger<Migrator>.Instance).Migrate(destinationCn);
 
-        await cnDestino.ExecuteAsync(
+        await destinationCn.ExecuteAsync(
             """
             INSERT INTO eval_runs (
                 created_at, model_version, eval_set, set_size, representative, accuracy,
@@ -184,28 +185,28 @@ try
             new
             {
                 createdAt = DateTimeOffset.UtcNow.ToString("O"),
-                // 0 = solo senales deterministas. Es la linea base que el hito 6
-                // tiene que superar; si no la supera, el modelo no aporta.
+                // 0 = deterministic signals only. This is the baseline milestone 6 has
+                // to beat; if it does not, the model adds nothing.
                 modelVersion = 0,
-                evalSet = nombreSet,
-                setSize = predicciones.Count,
-                representative = representativo ? 1 : 0,
-                accuracy = informe.Accuracy,
-                precisionMacro = informe.PrecisionMacro,
-                recallMacro = informe.RecallMacro,
-                f1Macro = informe.F1Macro,
-                coverage = informe.Coverage,
-                perBucketJson = JsonSerializer.Serialize(informe.PorBucket),
-                confusionJson = JsonSerializer.Serialize(informe.Confusion),
+                evalSet = setName,
+                setSize = predictions.Count,
+                representative = representative ? 1 : 0,
+                accuracy = report.Accuracy,
+                precisionMacro = report.PrecisionMacro,
+                recallMacro = report.RecallMacro,
+                f1Macro = report.F1Macro,
+                coverage = report.Coverage,
+                perBucketJson = JsonSerializer.Serialize(report.PerBucket),
+                confusionJson = JsonSerializer.Serialize(report.Confusion),
             });
 
-        Console.WriteLine($"pasada anotada en {rutaDestino}");
+        Console.WriteLine($"run recorded in {destinationPath}");
     }
 }
 finally
 {
     Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-    foreach (var f in new[] { rutaTemporal, rutaTemporal + "-wal", rutaTemporal + "-shm" })
+    foreach (var f in new[] { tempPath, tempPath + "-wal", tempPath + "-shm" })
     {
         if (File.Exists(f))
         {
@@ -216,128 +217,129 @@ finally
 
 return 0;
 
-// --- Metricas ----------------------------------------------------------------
+// --- Metrics --------------------------------------------------------------------
 
-static Informe Medir(List<(string Fichero, string Esperado, string? Obtenido, double Confianza)> predicciones)
+static Report Measure(List<(string File, string Expected, string? Produced, double Confidence)> predictions)
 {
     var buckets = new[] { "responder", "informativo", "automatizado", "ruido" };
 
-    // Un correo por debajo del umbral NO es una prediccion: el sistema ha dicho que no
-    // sabe. Contarlo como fallo castigaria la prudencia, y contarlo como acierto la
-    // premiaria. Sale de precision y recall, y se mide aparte como cobertura.
-    var comprometidas = predicciones.Where(p => p.Confianza >= SignalBaseline.ConfidenceThreshold).ToList();
-    var cobertura = (double)comprometidas.Count / predicciones.Count;
+    // A message below the threshold is NOT a prediction: the system said it does not
+    // know. Counting it as a failure would punish caution; counting it as a success
+    // would reward it. It leaves precision and recall, and is measured separately as
+    // coverage.
+    var committed = predictions.Where(p => p.Confidence >= SignalBaseline.ConfidenceThreshold).ToList();
+    var coverage = (double)committed.Count / predictions.Count;
 
-    var aciertos = comprometidas.Count(p => p.Obtenido == p.Esperado);
-    var accuracy = comprometidas.Count == 0 ? 0 : (double)aciertos / comprometidas.Count;
+    var correct = committed.Count(p => p.Produced == p.Expected);
+    var accuracy = committed.Count == 0 ? 0 : (double)correct / committed.Count;
 
-    var porBucket = new Dictionary<string, MetricasBucket>();
+    var perBucket = new Dictionary<string, BucketMetrics>();
 
     foreach (var bucket in buckets)
     {
-        var tp = comprometidas.Count(p => p.Obtenido == bucket && p.Esperado == bucket);
-        var fp = comprometidas.Count(p => p.Obtenido == bucket && p.Esperado != bucket);
-        var fn = comprometidas.Count(p => p.Obtenido != bucket && p.Esperado == bucket);
+        var tp = committed.Count(p => p.Produced == bucket && p.Expected == bucket);
+        var fp = committed.Count(p => p.Produced == bucket && p.Expected != bucket);
+        var fn = committed.Count(p => p.Produced != bucket && p.Expected == bucket);
 
         var precision = tp + fp == 0 ? 0 : (double)tp / (tp + fp);
         var recall = tp + fn == 0 ? 0 : (double)tp / (tp + fn);
         var f1 = precision + recall == 0 ? 0 : 2 * precision * recall / (precision + recall);
 
-        // Soporte segun las etiquetas, no segun lo que el sistema predijo: incluye los
-        // correos de ese bucket que quedaron bajo el umbral.
-        var soporte = predicciones.Count(p => p.Esperado == bucket);
+        // Support comes from the labels, not from what the system predicted: it
+        // includes the messages of that bucket that fell below the threshold.
+        var support = predictions.Count(p => p.Expected == bucket);
 
-        porBucket[bucket] = new MetricasBucket(precision, recall, f1, soporte, tp, fp, fn);
+        perBucket[bucket] = new BucketMetrics(precision, recall, f1, support, tp, fp, fn);
     }
 
-    // Macro y no micro: los cuatro buckets tienen tamanos muy distintos y la micro
-    // quedaria dominada por el mayoritario, escondiendo que el sistema falla justo en
-    // el cajon pequeno. Solo cuentan los buckets con algun correo etiquetado: promediar
-    // un bucket vacio como 0 hundiria la media sin que signifique nada.
-    var conSoporte = porBucket.Where(kv => kv.Value.Soporte > 0).Select(kv => kv.Value).ToList();
+    // Macro and not micro: the four buckets have very different sizes and micro would
+    // be dominated by the largest, hiding the fact that the system fails precisely on
+    // the small one. Only buckets with labelled messages count: averaging an empty
+    // bucket as 0 would sink the mean without meaning anything.
+    var supported = perBucket.Where(kv => kv.Value.Support > 0).Select(kv => kv.Value).ToList();
 
     var confusion = new Dictionary<string, Dictionary<string, int>>();
-    foreach (var esperado in buckets)
+    foreach (var expected in buckets)
     {
-        var fila = new Dictionary<string, int>();
-        foreach (var obtenido in buckets)
+        var row = new Dictionary<string, int>();
+        foreach (var produced in buckets)
         {
-            fila[obtenido] = comprometidas.Count(p => p.Esperado == esperado && p.Obtenido == obtenido);
+            row[produced] = committed.Count(p => p.Expected == expected && p.Produced == produced);
         }
-        // Columna extra: los que el sistema no se atrevio a clasificar.
-        fila["duda"] = predicciones.Count(p =>
-            p.Esperado == esperado && p.Confianza < SignalBaseline.ConfidenceThreshold);
-        confusion[esperado] = fila;
+        // Extra column: the ones the system would not commit to.
+        row["duda"] = predictions.Count(p =>
+            p.Expected == expected && p.Confidence < SignalBaseline.ConfidenceThreshold);
+        confusion[expected] = row;
     }
 
-    return new Informe(
+    return new Report(
         accuracy,
-        conSoporte.Count == 0 ? 0 : conSoporte.Average(m => m.Precision),
-        conSoporte.Count == 0 ? 0 : conSoporte.Average(m => m.Recall),
-        conSoporte.Count == 0 ? 0 : conSoporte.Average(m => m.F1),
-        cobertura,
-        porBucket,
+        supported.Count == 0 ? 0 : supported.Average(m => m.Precision),
+        supported.Count == 0 ? 0 : supported.Average(m => m.Recall),
+        supported.Count == 0 ? 0 : supported.Average(m => m.F1),
+        coverage,
+        perBucket,
         confusion);
 }
 
-static void Imprimir(Informe i, List<(string Fichero, string Esperado, string? Obtenido, double Confianza)> predicciones)
+static void Print(Report r, List<(string File, string Expected, string? Produced, double Confidence)> predictions)
 {
-    Console.WriteLine($"correos medidos          : {predicciones.Count}");
-    Console.WriteLine($"cobertura                : {i.Coverage:P0}  (el resto quedo bajo el umbral {SignalBaseline.ConfidenceThreshold})");
-    Console.WriteLine($"acierto sobre lo cubierto: {i.Accuracy:P0}");
-    Console.WriteLine($"precision macro          : {i.PrecisionMacro:F3}");
-    Console.WriteLine($"recall macro             : {i.RecallMacro:F3}");
-    Console.WriteLine($"F1 macro                 : {i.F1Macro:F3}");
+    Console.WriteLine($"messages measured        : {predictions.Count}");
+    Console.WriteLine($"coverage                 : {r.Coverage:P0}  (the rest fell below the {SignalBaseline.ConfidenceThreshold} threshold)");
+    Console.WriteLine($"accuracy over covered    : {r.Accuracy:P0}");
+    Console.WriteLine($"macro precision          : {r.PrecisionMacro:F3}");
+    Console.WriteLine($"macro recall             : {r.RecallMacro:F3}");
+    Console.WriteLine($"macro F1                 : {r.F1Macro:F3}");
     Console.WriteLine();
 
-    Console.WriteLine("por bucket:");
-    Console.WriteLine("  bucket         prec.  recall     F1   soporte   TP  FP  FN");
-    foreach (var (bucket, m) in i.PorBucket)
+    Console.WriteLine("per bucket:");
+    Console.WriteLine("  bucket         prec.  recall     F1   support   TP  FP  FN");
+    foreach (var (bucket, m) in r.PerBucket)
     {
-        Console.WriteLine($"  {bucket,-13} {m.Precision,6:F2} {m.Recall,7:F2} {m.F1,6:F2} {m.Soporte,9} {m.Tp,4} {m.Fp,3} {m.Fn,3}");
+        Console.WriteLine($"  {bucket,-13} {m.Precision,6:F2} {m.Recall,7:F2} {m.F1,6:F2} {m.Support,9} {m.Tp,4} {m.Fp,3} {m.Fn,3}");
     }
     Console.WriteLine();
 
-    Console.WriteLine("matriz de confusion (filas = esperado, columnas = obtenido):");
+    Console.WriteLine("confusion matrix (rows = expected, columns = produced):");
     Console.WriteLine("                  respond.  inform.  automat.   ruido    duda");
-    foreach (var (esperado, fila) in i.Confusion)
+    foreach (var (expected, row) in r.Confusion)
     {
-        Console.Write($"  {esperado,-14}");
-        foreach (var col in new[] { "responder", "informativo", "automatizado", "ruido", "duda" })
+        Console.Write($"  {expected,-14}");
+        foreach (var column in new[] { "responder", "informativo", "automatizado", "ruido", "duda" })
         {
-            Console.Write($"{fila[col],9}");
+            Console.Write($"{row[column],9}");
         }
         Console.WriteLine();
     }
     Console.WriteLine();
 
-    var fallos = predicciones
-        .Where(p => p.Confianza >= SignalBaseline.ConfidenceThreshold && p.Obtenido != p.Esperado)
+    var failures = predictions
+        .Where(p => p.Confidence >= SignalBaseline.ConfidenceThreshold && p.Produced != p.Expected)
         .ToList();
 
-    if (fallos.Count > 0)
+    if (failures.Count > 0)
     {
-        Console.WriteLine($"fallos ({fallos.Count}):");
-        foreach (var f in fallos)
+        Console.WriteLine($"failures ({failures.Count}):");
+        foreach (var f in failures)
         {
-            Console.WriteLine($"  {f.Fichero,-32} esperado {f.Esperado,-13} obtenido {f.Obtenido,-13} ({f.Confianza:F2})");
+            Console.WriteLine($"  {f.File,-32} expected {f.Expected,-13} produced {f.Produced,-13} ({f.Confidence:F2})");
         }
         Console.WriteLine();
     }
 
-    var dudosos = predicciones.Where(p => p.Confianza < SignalBaseline.ConfidenceThreshold).ToList();
-    if (dudosos.Count > 0)
+    var abstentions = predictions.Where(p => p.Confidence < SignalBaseline.ConfidenceThreshold).ToList();
+    if (abstentions.Count > 0)
     {
-        Console.WriteLine($"sin pronunciarse ({dudosos.Count}):");
-        foreach (var d in dudosos)
+        Console.WriteLine($"no answer given ({abstentions.Count}):");
+        foreach (var a in abstentions)
         {
-            Console.WriteLine($"  {d.Fichero,-32} esperado {d.Esperado,-13} habria dicho {d.Obtenido,-13} ({d.Confianza:F2})");
+            Console.WriteLine($"  {a.File,-32} expected {a.Expected,-13} would have said {a.Produced,-13} ({a.Confidence:F2})");
         }
         Console.WriteLine();
     }
 }
 
-static Dictionary<string, string> LeerArgumentos(string[] args)
+static Dictionary<string, string> ReadArguments(string[] args)
 {
     var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -348,51 +350,51 @@ static Dictionary<string, string> LeerArgumentos(string[] args)
             continue;
         }
 
-        var clave = args[i][2..];
-        var valor = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
+        var key = args[i][2..];
+        var value = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
             ? args[++i]
             : string.Empty;
 
-        d[clave] = valor;
+        d[key] = value;
     }
 
     return d;
 }
 
-static IEnumerable<string> Envolver(string texto, int ancho)
+static IEnumerable<string> Wrap(string text, int width)
 {
-    var linea = new StringBuilder();
+    var line = new StringBuilder();
 
-    foreach (var palabra in texto.Split(' '))
+    foreach (var word in text.Split(' '))
     {
-        if (linea.Length + palabra.Length + 1 > ancho && linea.Length > 0)
+        if (line.Length + word.Length + 1 > width && line.Length > 0)
         {
-            yield return linea.ToString();
-            linea.Clear();
+            yield return line.ToString();
+            line.Clear();
         }
 
-        if (linea.Length > 0)
+        if (line.Length > 0)
         {
-            linea.Append(' ');
+            line.Append(' ');
         }
 
-        linea.Append(palabra);
+        line.Append(word);
     }
 
-    if (linea.Length > 0)
+    if (line.Length > 0)
     {
-        yield return linea.ToString();
+        yield return line.ToString();
     }
 }
 
-internal sealed record MetricasBucket(
-    double Precision, double Recall, double F1, int Soporte, int Tp, int Fp, int Fn);
+internal sealed record BucketMetrics(
+    double Precision, double Recall, double F1, int Support, int Tp, int Fp, int Fn);
 
-internal sealed record Informe(
+internal sealed record Report(
     double Accuracy,
     double PrecisionMacro,
     double RecallMacro,
     double F1Macro,
     double Coverage,
-    Dictionary<string, MetricasBucket> PorBucket,
+    Dictionary<string, BucketMetrics> PerBucket,
     Dictionary<string, Dictionary<string, int>> Confusion);

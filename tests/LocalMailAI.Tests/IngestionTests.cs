@@ -12,27 +12,27 @@ using MimeKit;
 namespace LocalMailAI.Tests;
 
 /// <summary>
-/// La cadena completa contra una base de datos de verdad: parseo, normalizacion,
-/// senales, clasificacion, escritura y lectura por la API.
+/// The whole chain against a real database: parsing, normalisation, signals,
+/// classification, writing and reading back through the API.
 ///
-/// Son los hitos 1 a 4 juntos, que es la unica forma de comprobar que encajan: cada
-/// pieza por separado puede estar bien y la union estar mal.
+/// This is milestones 1 to 4 together, which is the only way to check that they fit:
+/// each piece can be correct on its own and the join still be wrong.
 /// </summary>
 public sealed class IngestionTests : IDisposable
 {
-    private readonly string _ruta = Path.Combine(Path.GetTempPath(), $"localmail-test-{Guid.NewGuid():N}.db");
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"localmail-test-{Guid.NewGuid():N}.db");
     private readonly Database _db;
     private readonly EmailIngestor _ingestor = new(NullLogger<EmailIngestor>.Instance);
     private readonly EmailRepository _repo;
-    private readonly CorrectionsRepository _correcciones;
+    private readonly CorrectionsRepository _corrections;
 
-    private static readonly DateTimeOffset Ahora = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
     public IngestionTests()
     {
-        _db = new Database(_ruta);
+        _db = new Database(_path);
         _repo = new EmailRepository(_db);
-        _correcciones = new CorrectionsRepository(_db, _repo, NullLogger<CorrectionsRepository>.Instance);
+        _corrections = new CorrectionsRepository(_db, _repo, NullLogger<CorrectionsRepository>.Instance);
 
         using var cn = _db.Open();
         new Migrator(NullLogger<Migrator>.Instance).Migrate(cn);
@@ -40,14 +40,14 @@ public sealed class IngestionTests : IDisposable
         cn.Execute(
             """
             INSERT INTO accounts (id, email, imap_host, imap_port, credential_key, created_at)
-            VALUES ('cuenta', 'kevin@sagetasolutions.com', 'localhost', 993, 'clave', '2026-11-01T00:00:00Z')
+            VALUES ('cuenta', 'kevin@sagetasolutions.com', 'localhost', 993, 'key', '2026-11-01T00:00:00Z')
             """);
     }
 
     public void Dispose()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        foreach (var f in new[] { _ruta, _ruta + "-wal", _ruta + "-shm" })
+        foreach (var f in new[] { _path, _path + "-wal", _path + "-shm" })
         {
             if (File.Exists(f))
             {
@@ -57,9 +57,9 @@ public sealed class IngestionTests : IDisposable
     }
 
     [Fact]
-    public async Task Un_correo_personal_recorre_el_pipeline_entero()
+    public async Task A_personal_message_goes_through_the_whole_pipeline()
     {
-        var id = await Ingerir(
+        var id = await Ingest(
             """
             From: Ana Molina <ana.molina@estudiolegal.es>
             To: kevin@sagetasolutions.com
@@ -80,37 +80,37 @@ public sealed class IngestionTests : IDisposable
             > Te confirmo el jueves a las 9.
             """);
 
-        var correo = await _repo.GetAsync(id, Ahora);
+        var email = await _repo.GetAsync(id, Now);
 
-        Assert.NotNull(correo);
-        Assert.Equal("Ana Molina", correo.From.Name);
-        Assert.Equal("ana.molina@estudiolegal.es", correo.From.Email);
+        Assert.NotNull(email);
+        Assert.Equal("Ana Molina", email.From.Name);
+        Assert.Equal("ana.molina@estudiolegal.es", email.From.Email);
 
-        // La cita se ha ido y los acentos han sobrevivido al viaje por SQLite.
-        Assert.DoesNotContain("Te confirmo el jueves a las 9", correo.Preview);
-        Assert.Contains("¿Te viene bien a las 10", correo.Preview);
-        Assert.All(correo.Body, p => Assert.DoesNotContain(">", p));
+        // The quote is gone and the accents survived the round trip through SQLite.
+        Assert.DoesNotContain("Te confirmo el jueves a las 9", email.Preview);
+        Assert.Contains("¿Te viene bien a las 10", email.Preview);
+        Assert.All(email.Body, p => Assert.DoesNotContain(">", p));
 
-        Assert.Equal(3, correo.Body.Length);
-        // Mismo dia: tiene que salir una hora, no "Ayer" ni un dia de la semana.
-        // No se fija el valor porque el .eml va en UTC y la API formatea en hora
-        // local: fijarlo haria que el test fallara en una maquina de otro huso.
-        Assert.Matches(@"^\d{1,2}:\d{2}$", correo.Time);
-        Assert.True(correo.Unread);
-        Assert.Equal(1, correo.ThreadCount);
+        Assert.Equal(3, email.Body.Length);
+        // Same day: it has to produce a time, not "Ayer" or a weekday name. The exact
+        // value is not pinned because the .eml is in UTC and the API formats in local
+        // time; pinning it would fail on a machine in another timezone.
+        Assert.Matches(@"^\d{1,2}:\d{2}$", email.Time);
+        Assert.True(email.Unread);
+        Assert.Equal(1, email.ThreadCount);
 
-        // Sin LLM todavia: las dos propiedades opcionales no vienen (hito 9).
-        Assert.Null(correo.Extracted);
-        Assert.Null(correo.Summary);
+        // No LLM yet: neither optional property is present (milestone 9).
+        Assert.Null(email.Extracted);
+        Assert.Null(email.Summary);
 
-        Assert.Contains(correo.Signals, s => s.Label == "Vas en Para:, no en Cc:" && s.Sign == "pos");
-        Assert.Contains(correo.Signals, s => s.Label == "Remitente verificado (DKIM + SPF)");
+        Assert.Contains(email.Signals, s => s.Label == "Vas en Para:, no en Cc:" && s.Sign == "pos");
+        Assert.Contains(email.Signals, s => s.Label == "Remitente verificado (DKIM + SPF)");
     }
 
     [Fact]
-    public async Task Ingerir_dos_veces_el_mismo_correo_no_lo_duplica()
+    public async Task Ingesting_the_same_message_twice_does_not_duplicate_it()
     {
-        // Un sync que se repite es lo normal, no la excepcion.
+        // A repeated sync is the normal case, not the exception.
         const string eml =
             """
             From: Ana <ana@estudiolegal.es>
@@ -123,27 +123,27 @@ public sealed class IngestionTests : IDisposable
             """;
 
         using var cn = _db.Open();
-        var primera = await _ingestor.IngestAsync(cn, "cuenta", Cargar(eml), 1, "INBOX", 100);
-        var segunda = await _ingestor.IngestAsync(cn, "cuenta", Cargar(eml), 1, "INBOX", 100);
+        var firstRun = await _ingestor.IngestAsync(cn, "cuenta", Load(eml), 1, "INBOX", 100);
+        var secondRun = await _ingestor.IngestAsync(cn, "cuenta", Load(eml), 1, "INBOX", 100);
 
-        Assert.True(primera.Inserted);
-        Assert.False(segunda.Inserted);
-        Assert.Equal(primera.EmailId, segunda.EmailId);
+        Assert.True(firstRun.Inserted);
+        Assert.False(secondRun.Inserted);
+        Assert.Equal(firstRun.EmailId, secondRun.EmailId);
         Assert.Equal(1, await cn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM emails"));
 
-        // Y sender_stats no ha contado el correo dos veces.
+        // And sender_stats did not count the message twice.
         Assert.Equal(1, await cn.ExecuteScalarAsync<long>(
             "SELECT received FROM sender_stats WHERE from_email = 'ana@estudiolegal.es'"));
     }
 
     [Fact]
-    public async Task El_hilo_cuenta_sus_mensajes_y_detecta_la_insistencia()
+    public async Task The_thread_counts_its_messages_and_detects_insistence()
     {
-        // Tres mensajes seguidos del mismo remitente sin respuesta: §6 lo llama
-        // "Tercer mensaje sin respuesta tuya" y es la senal de mas peso.
+        // Three consecutive messages from the same sender with no reply: §6 calls this
+        // "Tercer mensaje sin respuesta tuya" and it carries the heaviest weight.
         for (var i = 1; i <= 3; i++)
         {
-            await Ingerir(
+            await Ingest(
                 $"""
                 From: Pablo Esteban <pablo@clientemayor.com>
                 To: kevin@sagetasolutions.com
@@ -156,18 +156,18 @@ public sealed class IngestionTests : IDisposable
                 """);
         }
 
-        var pagina = await _repo.ListAsync(null, 50, null, Ahora);
-        var ultimo = pagina.Items[0];
+        var page = await _repo.ListAsync(null, 50, null, Now);
+        var last = page.Items[0];
 
-        Assert.Equal(3, ultimo.ThreadCount);
-        Assert.Contains(ultimo.Signals, s => s.Label == "Tercer mensaje sin respuesta tuya");
-        Assert.Equal("responder", ultimo.Bucket);
+        Assert.Equal(3, last.ThreadCount);
+        Assert.Contains(last.Signals, s => s.Label == "Tercer mensaje sin respuesta tuya");
+        Assert.Equal("responder", last.Bucket);
     }
 
     [Fact]
-    public async Task Una_newsletter_html_queda_sin_markup_y_fuera_de_responder()
+    public async Task An_html_newsletter_loses_its_markup_and_stays_out_of_responder()
     {
-        var id = await Ingerir(
+        var id = await Ingest(
             """
             From: Marketing Zentrix <newsletter@zentrix.io>
             To: kevin@sagetasolutions.com
@@ -183,20 +183,20 @@ public sealed class IngestionTests : IDisposable
             </body></html>
             """);
 
-        var correo = await _repo.GetAsync(id, Ahora);
+        var email = await _repo.GetAsync(id, Now);
 
-        Assert.NotNull(correo);
-        Assert.DoesNotContain("<", correo.Preview);
-        Assert.DoesNotContain("color:red", string.Join(' ', correo.Body));
-        Assert.Contains("Descubre las herramientas", string.Join(' ', correo.Body));
-        Assert.NotEqual("responder", correo.Bucket);
-        Assert.Contains(correo.Signals, s => s.Label == "List-Unsubscribe presente" && s.Sign == "neg");
+        Assert.NotNull(email);
+        Assert.DoesNotContain("<", email.Preview);
+        Assert.DoesNotContain("color:red", string.Join(' ', email.Body));
+        Assert.Contains("Descubre las herramientas", string.Join(' ', email.Body));
+        Assert.NotEqual("responder", email.Bucket);
+        Assert.Contains(email.Signals, s => s.Label == "List-Unsubscribe presente" && s.Sign == "neg");
     }
 
     [Fact]
-    public async Task El_indice_de_texto_queda_poblado_y_busca_sin_acentos()
+    public async Task The_text_index_is_populated_and_searches_without_accents()
     {
-        await Ingerir(
+        await Ingest(
             """
             From: Facturacion <facturacion@nordia-cloud.com>
             To: kevin@sagetasolutions.com
@@ -210,34 +210,34 @@ public sealed class IngestionTests : IDisposable
 
         using var cn = _db.Open();
 
-        // El rowid del indice tiene que ser el de emails, o la busqueda no podra
-        // devolver el correo (email_fts es contentless).
-        var encontrado = await cn.QuerySingleOrDefaultAsync<string>(
+        // The index rowid has to be the one from emails, or search cannot return the
+        // message at all (email_fts is contentless).
+        var found = await cn.QuerySingleOrDefaultAsync<string>(
             """
             SELECT e.id FROM email_fts f
             JOIN emails e ON e.rowid = f.rowid
             WHERE email_fts MATCH 'factura'
             """);
 
-        Assert.NotNull(encontrado);
+        Assert.NotNull(found);
 
-        // remove_diacritics 2: buscar "area" encuentra "área".
-        var sinAcento = await cn.ExecuteScalarAsync<long>(
+        // remove_diacritics 2: searching "area" finds "área".
+        var withoutAccent = await cn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM email_fts WHERE email_fts MATCH 'area'");
 
-        Assert.Equal(1, sinAcento);
+        Assert.Equal(1, withoutAccent);
     }
 
     [Fact]
-    public async Task La_paginacion_no_repite_ni_se_salta_correos()
+    public async Task Paging_neither_repeats_nor_skips_messages()
     {
         for (var i = 1; i <= 7; i++)
         {
-            await Ingerir(
+            await Ingest(
                 $"""
                 From: Remitente {i} <r{i}@ejemplo.com>
                 To: kevin@sagetasolutions.com
-                Subject: Correo {i}
+                Subject: Message {i}
                 Message-ID: <p{i}@ejemplo.com>
                 Date: Tue, 3 Nov 2026 0{i}:00:00 +0000
 
@@ -245,25 +245,25 @@ public sealed class IngestionTests : IDisposable
                 """);
         }
 
-        var vistos = new List<string>();
+        var seen = new List<string>();
         string? cursor = null;
 
         do
         {
-            var pagina = await _repo.ListAsync(null, 3, cursor, Ahora);
-            vistos.AddRange(pagina.Items.Select(e => e.Id));
-            cursor = pagina.NextCursor;
+            var page = await _repo.ListAsync(null, 3, cursor, Now);
+            seen.AddRange(page.Items.Select(e => e.Id));
+            cursor = page.NextCursor;
         }
         while (cursor is not null);
 
-        Assert.Equal(7, vistos.Count);
-        Assert.Equal(7, vistos.Distinct().Count());
+        Assert.Equal(7, seen.Count);
+        Assert.Equal(7, seen.Distinct().Count());
     }
 
     [Fact]
-    public async Task Filtrar_por_bucket_solo_devuelve_ese_bucket()
+    public async Task Filtering_by_bucket_returns_only_that_bucket()
     {
-        await Ingerir(
+        await Ingest(
             """
             From: Docker Hub <noreply@docker.com>
             To: kevin@sagetasolutions.com
@@ -275,7 +275,7 @@ public sealed class IngestionTests : IDisposable
             Has usado 180 de 200 pulls.
             """);
 
-        await Ingerir(
+        await Ingest(
             """
             From: Diego <d.ferran@sagetasolutions.com>
             To: kevin@sagetasolutions.com
@@ -286,7 +286,7 @@ public sealed class IngestionTests : IDisposable
             ¿Puedes revisar los numeros del Q3?
             """);
 
-        var responder = await _repo.ListAsync("responder", 50, null, Ahora);
+        var responder = await _repo.ListAsync("responder", 50, null, Now);
 
         Assert.All(responder.Items, e => Assert.Equal("responder", e.Bucket));
         Assert.Contains(responder.Items, e => e.From.Email == "d.ferran@sagetasolutions.com");
@@ -294,10 +294,10 @@ public sealed class IngestionTests : IDisposable
     }
 
     [Fact]
-    public async Task Un_correo_sin_cuerpo_se_sirve_igual()
+    public async Task A_message_with_no_body_is_still_served()
     {
-        // No fallar nunca por correo raro (§11). Llega a la bandeja con lo que tenga.
-        var id = await Ingerir(
+        // Never fail on odd mail (§11). It reaches the inbox with whatever it has.
+        var id = await Ingest(
             """
             From: Vercel <no-reply@vercel.com>
             To: kevin@sagetasolutions.com
@@ -309,22 +309,22 @@ public sealed class IngestionTests : IDisposable
 
             """);
 
-        var correo = await _repo.GetAsync(id, Ahora);
+        var email = await _repo.GetAsync(id, Now);
 
-        Assert.NotNull(correo);
-        Assert.Empty(correo.Body);
-        Assert.Equal(string.Empty, correo.Preview);
-        Assert.Equal("Despliegue correcto", correo.Subject);
+        Assert.NotNull(email);
+        Assert.Empty(email.Body);
+        Assert.Equal(string.Empty, email.Preview);
+        Assert.Equal("Despliegue correcto", email.Subject);
     }
 
     [Fact]
-    public async Task El_hilo_no_cuenta_los_mensajes_de_otra_cuenta()
+    public async Task The_thread_does_not_count_messages_from_another_account()
     {
-        // El MVP gestiona un solo buzon, pero el esquema admite varios y las
-        // consultas tienen que acotar por cuenta. Sin esto, un hilo que llega a dos
-        // direcciones tuyas saldria con el doble de mensajes, y las senales de
-        // "participas en el hilo" o "tercer mensaje sin respuesta" se contaminarian
-        // entre bandejas. Es un bug que no se ve hasta anadir la segunda cuenta.
+        // The MVP handles a single mailbox, but the schema allows several and the
+        // queries have to be scoped by account. Without this, a thread reaching two of
+        // your addresses would report twice the messages, and the "you participate in
+        // this thread" and "third unanswered message" signals would bleed across
+        // inboxes. It is a bug nobody sees until a second account is added.
         using var cn = _db.Open();
         await cn.ExecuteAsync(
             """
@@ -341,40 +341,40 @@ public sealed class IngestionTests : IDisposable
             References: <raiz-compartida@estudiolegal.es>
             Date: Tue, 3 Nov 2026 09:14:00 +0000
 
-            El mismo correo en los dos buzones.
+            El mismo email en los dos buzones.
             """;
 
-        var enCuenta = await _ingestor.IngestAsync(cn, "cuenta", Cargar(eml), 1, "INBOX", 100);
-        var enOtra = await _ingestor.IngestAsync(cn, "otra", Cargar(eml), 1, "INBOX", 100);
+        var inAccount = await _ingestor.IngestAsync(cn, "cuenta", Load(eml), 1, "INBOX", 100);
+        var inOther = await _ingestor.IngestAsync(cn, "otra", Load(eml), 1, "INBOX", 100);
 
-        // Dos filas distintas: el id se hashea con la cuenta.
-        Assert.NotEqual(enCuenta.EmailId, enOtra.EmailId);
+        // Two distinct rows: the id is hashed together with the account.
+        Assert.NotEqual(inAccount.EmailId, inOther.EmailId);
         Assert.Equal(2, await cn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM emails"));
 
-        // Pero cada uno ve su hilo con UN mensaje, no con dos.
-        var uno = await _repo.GetAsync(enCuenta.EmailId, Ahora);
-        var otro = await _repo.GetAsync(enOtra.EmailId, Ahora);
+        // But each one sees its thread with ONE message, not two.
+        var one = await _repo.GetAsync(inAccount.EmailId, Now);
+        var other = await _repo.GetAsync(inOther.EmailId, Now);
 
-        Assert.NotNull(uno);
-        Assert.NotNull(otro);
-        Assert.Equal(1, uno.ThreadCount);
-        Assert.Equal(1, otro.ThreadCount);
+        Assert.NotNull(one);
+        Assert.NotNull(other);
+        Assert.Equal(1, one.ThreadCount);
+        Assert.Equal(1, other.ThreadCount);
     }
 
-    // --- Recuentos de los tiles y leido/no leido -------------------------------
+    // --- Tile counts and read state --------------------------------------------
 
     [Fact]
-    public async Task Los_recuentos_cuadran_con_las_listas_que_abren()
+    public async Task The_counts_match_the_lists_they_open()
     {
-        // La invariante de la que depende la pantalla principal del front: los cinco
-        // tiles son la navegacion, asi que el numero del tile tiene que ser
-        // exactamente el numero de correos que sale al pulsarlo. Si la regla del
-        // umbral se aplicara en dos sitios distintos, esto se rompe en silencio.
-        await SembrarVariados();
+        // The invariant the frontend's main screen depends on: the five tiles are the
+        // navigation, so a tile's number has to be exactly the number of messages that
+        // appear when it is pressed. If the threshold rule were applied in two
+        // different places, this breaks silently.
+        await SeedVariety();
 
         var c = await _repo.CountsAsync();
 
-        foreach (var (bucket, esperado) in new[]
+        foreach (var (bucket, expected) in new[]
         {
             ("responder", c.Responder),
             ("informativo", c.Informativo),
@@ -383,11 +383,11 @@ public sealed class IngestionTests : IDisposable
             ("duda", c.Duda),
         })
         {
-            var lista = await _repo.ListAsync(bucket, 200, null, Ahora);
-            Assert.Equal(esperado, lista.Items.Length);
+            var list = await _repo.ListAsync(bucket, 200, null, Now);
+            Assert.Equal(expected, list.Items.Length);
         }
 
-        // Y los cinco cajones reparten todos los correos, sin solapes ni huecos.
+        // And the five buckets partition every message, with no overlaps or gaps.
         using var cn = _db.Open();
         var total = (int)await cn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM emails");
 
@@ -395,39 +395,39 @@ public sealed class IngestionTests : IDisposable
     }
 
     [Fact]
-    public async Task Un_correo_dudoso_sale_de_su_bucket_y_va_a_duda()
+    public async Task A_low_confidence_message_leaves_its_bucket_for_doubt()
     {
-        // Remitente desconocido: el baseline da 0.50, por debajo del umbral. No debe
-        // aparecer en "responder" aunque su bucket calculado sea ese, porque el front
-        // lo pinta en el cajon de duda y el correo saldria dos veces.
-        var id = await Ingerir(
+        // Unknown sender: the baseline gives 0.50, below the threshold. It must not
+        // appear under "responder" even though that is its computed bucket, because
+        // the frontend paints it in the doubt bucket and it would show up twice.
+        var id = await Ingest(
             """
-            From: Desconocido <nuevo@proveedor-nuevo.com>
+            From: Desconocido <added@proveedor-added.com>
             To: kevin@sagetasolutions.com
             Subject: Su solicitud ha sido registrada
-            Message-ID: <dudoso@proveedor-nuevo.com>
+            Message-ID: <dudoso@proveedor-added.com>
             Date: Tue, 3 Nov 2026 10:05:00 +0000
 
             Hemos recibido su solicitud.
             """);
 
-        var correo = await _repo.GetAsync(id, Ahora);
-        Assert.NotNull(correo);
-        Assert.True(correo.Confidence < 0.55, $"confianza {correo.Confidence}");
+        var email = await _repo.GetAsync(id, Now);
+        Assert.NotNull(email);
+        Assert.True(email.Confidence < 0.55, $"confianza {email.Confidence}");
 
-        var enDuda = await _repo.ListAsync("duda", 50, null, Ahora);
-        Assert.Contains(enDuda.Items, e => e.Id == id);
+        var inDoubt = await _repo.ListAsync("duda", 50, null, Now);
+        Assert.Contains(inDoubt.Items, e => e.Id == id);
 
-        var enSuBucket = await _repo.ListAsync(correo.Bucket, 50, null, Ahora);
-        Assert.DoesNotContain(enSuBucket.Items, e => e.Id == id);
+        var inItsBucket = await _repo.ListAsync(email.Bucket, 50, null, Now);
+        Assert.DoesNotContain(inItsBucket.Items, e => e.Id == id);
     }
 
     [Fact]
-    public async Task Marcar_leido_devuelve_el_correo_y_alimenta_la_senal_de_apertura()
+    public async Task Marking_read_returns_the_message_and_feeds_the_open_signal()
     {
-        // Abrir un correo incrementa sender_stats.opened, que es lo que distingue
-        // "automatizado" de "ruido" (§6). No es contabilidad: es la senal.
-        var id = await Ingerir(
+        // Opening a message increments sender_stats.opened, which is what separates
+        // "automatizado" from "ruido" (§6). It is not bookkeeping: it is the signal.
+        var id = await Ingest(
             """
             From: Vercel <no-reply@vercel.com>
             To: kevin@sagetasolutions.com
@@ -438,14 +438,14 @@ public sealed class IngestionTests : IDisposable
             Tu despliegue se ha completado.
             """);
 
-        var antes = await _repo.GetAsync(id, Ahora);
-        Assert.True(antes!.Unread);
+        var before = await _repo.GetAsync(id, Now);
+        Assert.True(before!.Unread);
 
-        var despues = await _repo.SetUnreadAsync(id, false, Ahora);
+        var after = await _repo.SetUnreadAsync(id, false, Now);
 
-        Assert.NotNull(despues);
-        Assert.False(despues.Unread);
-        Assert.Equal(id, despues.Id);
+        Assert.NotNull(after);
+        Assert.False(after.Unread);
+        Assert.Equal(id, after.Id);
 
         using var cn = _db.Open();
         Assert.Equal(1, await cn.ExecuteScalarAsync<long>(
@@ -453,10 +453,10 @@ public sealed class IngestionTests : IDisposable
     }
 
     [Fact]
-    public async Task Abrir_el_mismo_correo_dos_veces_no_cuenta_dos_aperturas()
+    public async Task Opening_the_same_message_twice_counts_one_open()
     {
-        // Abrir diez veces el mismo correo no lo hace diez veces mas interesante.
-        var id = await Ingerir(
+        // Opening the same message ten times does not make it ten times more interesting.
+        var id = await Ingest(
             """
             From: Jira <jira@sageta.atlassian.net>
             To: kevin@sagetasolutions.com
@@ -464,50 +464,50 @@ public sealed class IngestionTests : IDisposable
             Message-ID: <doble@sageta.atlassian.net>
             Date: Tue, 3 Nov 2026 06:40:00 +0000
 
-            Cambio de estado.
+            Cambio de status.
             """);
 
-        await _repo.SetUnreadAsync(id, false, Ahora);
-        await _repo.SetUnreadAsync(id, false, Ahora);
+        await _repo.SetUnreadAsync(id, false, Now);
+        await _repo.SetUnreadAsync(id, false, Now);
 
         using var cn = _db.Open();
         Assert.Equal(1, await cn.ExecuteScalarAsync<long>(
             "SELECT opened FROM sender_stats WHERE from_email = 'jira@sageta.atlassian.net'"));
 
-        // Volver a marcar como no leido y abrir otra vez si cuenta: es una apertura nueva.
-        await _repo.SetUnreadAsync(id, true, Ahora);
-        await _repo.SetUnreadAsync(id, false, Ahora);
+        // Marking unread and opening again does count: that is a new open.
+        await _repo.SetUnreadAsync(id, true, Now);
+        await _repo.SetUnreadAsync(id, false, Now);
 
         Assert.Equal(2, await cn.ExecuteScalarAsync<long>(
             "SELECT opened FROM sender_stats WHERE from_email = 'jira@sageta.atlassian.net'"));
     }
 
     [Fact]
-    public async Task El_recuento_de_no_leidos_sigue_las_aperturas()
+    public async Task The_unread_count_follows_the_opens()
     {
-        await SembrarVariados();
+        await SeedVariety();
 
-        var inicial = await _repo.CountsAsync();
-        Assert.True(inicial.Unread > 0);
+        var initial = await _repo.CountsAsync();
+        Assert.True(initial.Unread > 0);
 
-        var primero = (await _repo.ListAsync(null, 1, null, Ahora)).Items[0];
-        await _repo.SetUnreadAsync(primero.Id, false, Ahora);
+        var first = (await _repo.ListAsync(null, 1, null, Now)).Items[0];
+        await _repo.SetUnreadAsync(first.Id, false, Now);
 
-        Assert.Equal(inicial.Unread - 1, (await _repo.CountsAsync()).Unread);
+        Assert.Equal(initial.Unread - 1, (await _repo.CountsAsync()).Unread);
     }
 
     [Fact]
-    public async Task Pedir_un_bucket_inexistente_no_devuelve_nada_en_vez_de_reventar()
+    public async Task Asking_for_a_nonexistent_bucket_returns_nothing_rather_than_failing()
     {
-        await SembrarVariados();
-        var lista = await _repo.ListAsync("inventado", 50, null, Ahora);
-        Assert.Empty(lista.Items);
+        await SeedVariety();
+        var list = await _repo.ListAsync("inventado", 50, null, Now);
+        Assert.Empty(list.Items);
     }
 
-    /// <summary>Un puñado de correos que caen en cajones distintos.</summary>
-    private async Task SembrarVariados()
+    /// <summary>A handful of messages that land in different buckets.</summary>
+    private async Task SeedVariety()
     {
-        await Ingerir(
+        await Ingest(
             """
             From: Diego <d.ferran@sagetasolutions.com>
             To: kevin@sagetasolutions.com
@@ -518,7 +518,7 @@ public sealed class IngestionTests : IDisposable
             ¿Puedes revisar los numeros del Q3?
             """);
 
-        await Ingerir(
+        await Ingest(
             """
             From: Zentrix <newsletter@zentrix.io>
             To: kevin@sagetasolutions.com
@@ -530,7 +530,7 @@ public sealed class IngestionTests : IDisposable
             Descubre las herramientas.
             """);
 
-        await Ingerir(
+        await Ingest(
             """
             From: Marta <marta.ruiz@universidadsur.edu>
             To: comite@universidadsur.edu
@@ -542,9 +542,9 @@ public sealed class IngestionTests : IDisposable
             No requiere accion por vuestra parte.
             """);
 
-        await Ingerir(
+        await Ingest(
             """
-            From: Desconocido <otro@sin-historial.com>
+            From: Desconocido <other@sin-historial.com>
             To: kevin@sagetasolutions.com
             Subject: Solicitud registrada
             Message-ID: <v4@sin-historial.com>
@@ -554,14 +554,14 @@ public sealed class IngestionTests : IDisposable
             """);
     }
 
-    // --- Estado del modelo -----------------------------------------------------
+    // --- Model status ----------------------------------------------------------
 
     [Fact]
-    public async Task El_estado_del_modelo_desglosa_los_ejemplos_por_origen()
+    public async Task The_model_status_breaks_examples_down_by_origin()
     {
-        // El front lo necesita para distinguir "aun no te conozco" (pocos ejemplos, y
-        // los que hay vienen del bootstrap) de "no se clasificar esto".
-        var id = await Ingerir(
+        // The frontend needs this to distinguish "I don't know you yet" (few examples,
+        // and the ones there came from the bootstrap) from "I can't classify this".
+        var id = await Ingest(
             """
             From: Ana <ana@estudiolegal.es>
             To: kevin@sagetasolutions.com
@@ -583,24 +583,24 @@ public sealed class IngestionTests : IDisposable
               (@id, NULL,          'ruido',     'rule',             '2026-11-03T09:00:00Z')
             """, new { id });
 
-        var estado = await new ModelStatusService(_db, _correcciones, SinEmbeddings(), NullLogger<ModelStatusService>.Instance).GetAsync();
+        var status = await new ModelStatusService(_db, _corrections, WithoutEmbeddings(), NullLogger<ModelStatusService>.Instance).GetAsync();
 
-        Assert.Equal(2, estado.ExamplesBySource.User);
-        Assert.Equal(1, estado.ExamplesBySource.BootstrapSent);
-        Assert.Equal(1, estado.ExamplesBySource.BootstrapFolder);
-        Assert.Equal(1, estado.ExamplesBySource.Rule);
-        Assert.Equal(5, estado.Examples);
-        Assert.True(estado.BootstrapRan);
-        Assert.Equal(1, estado.IndexedEmails);
+        Assert.Equal(2, status.ExamplesBySource.User);
+        Assert.Equal(1, status.ExamplesBySource.BootstrapSent);
+        Assert.Equal(1, status.ExamplesBySource.BootstrapFolder);
+        Assert.Equal(1, status.ExamplesBySource.Rule);
+        Assert.Equal(5, status.Examples);
+        Assert.True(status.BootstrapRan);
+        Assert.Equal(1, status.IndexedEmails);
     }
 
     [Fact]
-    public async Task Un_deshacer_no_sube_el_contador_de_ejemplos()
+    public async Task An_undo_does_not_raise_the_example_counter()
     {
-        // El deshacer inserta un evento inverso en vez de borrar la fila (§1, regla 4).
-        // Si el contador no lo descontara, deshacer una correccion SUBIRIA el numero de
-        // ejemplos, que es justo lo contrario de lo que el usuario acaba de hacer.
-        var id = await Ingerir(
+        // Undo inserts an inverse event instead of deleting the row (§1, rule 4). If
+        // the counter did not subtract it, undoing a correction would RAISE the example
+        // count, which is the opposite of what the user just asked for.
+        var id = await Ingest(
             """
             From: Ana <ana@estudiolegal.es>
             To: kevin@sagetasolutions.com
@@ -611,7 +611,7 @@ public sealed class IngestionTests : IDisposable
             Cuerpo
             """);
 
-        var servicio = new ModelStatusService(_db, _correcciones, SinEmbeddings(), NullLogger<ModelStatusService>.Instance);
+        var service = new ModelStatusService(_db, _corrections, WithoutEmbeddings(), NullLogger<ModelStatusService>.Instance);
         using var cn = _db.Open();
 
         await cn.ExecuteAsync(
@@ -620,7 +620,7 @@ public sealed class IngestionTests : IDisposable
             VALUES (@id, 'informativo', 'responder', 'user', '2026-11-03T10:00:00Z')
             """, new { id });
 
-        Assert.Equal(1, (await servicio.GetAsync()).Examples);
+        Assert.Equal(1, (await service.GetAsync()).Examples);
 
         await cn.ExecuteAsync(
             """
@@ -628,32 +628,32 @@ public sealed class IngestionTests : IDisposable
             VALUES (@id, 'responder', 'informativo', 'undo', '2026-11-03T10:00:30Z')
             """, new { id });
 
-        var tras = await servicio.GetAsync();
-        Assert.Equal(0, tras.Examples);
-        Assert.Equal(0, tras.ExamplesBySource.User);
+        var afterUndo = await service.GetAsync();
+        Assert.Equal(0, afterUndo.Examples);
+        Assert.Equal(0, afterUndo.ExamplesBySource.User);
     }
 
     [Fact]
-    public async Task La_precision_es_nula_mientras_no_haya_set_de_evaluacion()
+    public async Task Precision_is_null_until_an_evaluation_set_exists()
     {
-        // La spec pone 0.91 como ejemplo, pero ese numero solo sale de medir contra
-        // 250 correos etiquetados a mano. Devolver algo inventado pondria una cifra
-        // falsa delante del usuario.
-        var estado = await new ModelStatusService(_db, _correcciones, SinEmbeddings(), NullLogger<ModelStatusService>.Instance).GetAsync();
+        // The spec shows 0.91 as an example, but that number can only come from
+        // measuring against 250 hand-labelled messages. Returning something invented
+        // would put a false figure in front of the user.
+        var status = await new ModelStatusService(_db, _corrections, WithoutEmbeddings(), NullLogger<ModelStatusService>.Instance).GetAsync();
 
-        Assert.Null(estado.Precision);
-        Assert.Null(estado.LastTrained);
-        Assert.Equal(0, estado.Examples);
-        Assert.False(estado.BootstrapRan);
-        Assert.Equal("multilingual-e5-small (ONNX, 118M)", estado.Embeddings);
+        Assert.Null(status.Precision);
+        Assert.Null(status.LastTrained);
+        Assert.Equal(0, status.Examples);
+        Assert.False(status.BootstrapRan);
+        Assert.Equal("multilingual-e5-small (ONNX, 118M)", status.Embeddings);
     }
 
     [Fact]
-    public async Task Una_bandeja_vacia_devuelve_ceros_y_no_revienta()
+    public async Task An_empty_inbox_returns_zeros_and_does_not_fail()
     {
-        // Es el estado de toda instalacion nueva, antes del primer sync. Las dos
-        // consultas de agregacion usaban SUM, que sobre cero filas devuelve NULL en
-        // vez de 0, asi que los dos endpoints fallaban justo en el primer arranque.
+        // This is the state of every fresh installation, before the first sync. Both
+        // aggregate queries used SUM, which returns NULL rather than 0 over zero rows,
+        // so both endpoints failed on exactly the first startup.
         var c = await _repo.CountsAsync();
 
         Assert.Equal(0, c.Responder);
@@ -663,27 +663,27 @@ public sealed class IngestionTests : IDisposable
         Assert.Equal(0, c.Duda);
         Assert.Equal(0, c.Unread);
 
-        var lista = await _repo.ListAsync(null, 50, null, Ahora);
-        Assert.Empty(lista.Items);
-        Assert.Null(lista.NextCursor);
+        var list = await _repo.ListAsync(null, 50, null, Now);
+        Assert.Empty(list.Items);
+        Assert.Null(list.NextCursor);
     }
 
-    // --- Correcciones y deshacer -----------------------------------------------
+    // --- Corrections and undo ---------------------------------------------------
 
     [Fact]
-    public async Task Corregir_mueve_el_correo_al_cajon_elegido_y_lo_saca_de_duda()
+    public async Task Correcting_moves_the_message_to_the_chosen_bucket_and_out_of_doubt()
     {
-        // Lo que de verdad tiene que pasar al corregir: el correo aparece donde el
-        // usuario ha dicho. Si la confianza se quedara en la del modelo, un correo
-        // dudoso corregido seguiria saliendo en "No estoy seguro" y la correccion
-        // pareceria no haber hecho nada.
-        var id = await Ingerir(Correo("dudoso"));
+        // What actually has to happen on a correction: the message shows up where the
+        // user said. If confidence stayed at the model's value, a corrected
+        // low-confidence message would still appear under "not sure" and the
+        // correction would look like it did nothing.
+        var id = await Ingest(Message("dudoso"));
 
-        var antes = await _repo.GetAsync(id, Ahora);
-        Assert.True(antes!.Confidence < 0.55, $"confianza inicial {antes.Confidence}");
-        Assert.Contains((await _repo.ListAsync("duda", 50, null, Ahora)).Items, e => e.Id == id);
+        var before = await _repo.GetAsync(id, Now);
+        Assert.True(before!.Confidence < 0.55, $"confianza initial {before.Confidence}");
+        Assert.Contains((await _repo.ListAsync("duda", 50, null, Now)).Items, e => e.Id == id);
 
-        var r = await _correcciones.ApplyAsync(id, Bucket.Informativo, Ahora);
+        var r = await _corrections.ApplyAsync(id, Bucket.Informativo, Now);
 
         Assert.NotNull(r);
         Assert.NotNull(r.Email);
@@ -691,146 +691,146 @@ public sealed class IngestionTests : IDisposable
         Assert.Equal(1.0, r.Email.Confidence);
         Assert.Equal(1, r.Examples);
 
-        Assert.Contains((await _repo.ListAsync("informativo", 50, null, Ahora)).Items, e => e.Id == id);
-        Assert.DoesNotContain((await _repo.ListAsync("duda", 50, null, Ahora)).Items, e => e.Id == id);
+        Assert.Contains((await _repo.ListAsync("informativo", 50, null, Now)).Items, e => e.Id == id);
+        Assert.DoesNotContain((await _repo.ListAsync("duda", 50, null, Now)).Items, e => e.Id == id);
     }
 
     [Fact]
-    public async Task Corregir_conserva_las_senales_que_explican_el_error_del_modelo()
+    public async Task Correcting_keeps_the_signals_that_explain_the_models_mistake()
     {
-        // Las senales siguen siendo hechos ciertos sobre el correo. Borrarlas al
-        // corregir dejaria al usuario sin poder ver en que se equivoco el sistema.
-        var id = await Ingerir(
+        // The signals remain true facts about the message. Erasing them on correction
+        // would leave the user unable to see what the system got wrong.
+        var id = await Ingest(
             """
             From: Zentrix <newsletter@zentrix.io>
             To: kevin@sagetasolutions.com
             Subject: Oferta
-            Message-ID: <senales@zentrix.io>
+            Message-ID: <signals@zentrix.io>
             Date: Tue, 3 Nov 2026 05:30:00 +0000
             List-Unsubscribe: <mailto:unsub@zentrix.io>
 
             Descubre las herramientas.
             """);
 
-        var senalesAntes = (await _repo.GetAsync(id, Ahora))!.Signals.Length;
-        Assert.True(senalesAntes > 0);
+        var signalsBefore = (await _repo.GetAsync(id, Now))!.Signals.Length;
+        Assert.True(signalsBefore > 0);
 
-        var r = await _correcciones.ApplyAsync(id, Bucket.Responder, Ahora);
+        var r = await _corrections.ApplyAsync(id, Bucket.Responder, Now);
 
-        Assert.Equal(senalesAntes, r!.Email!.Signals.Length);
+        Assert.Equal(signalsBefore, r!.Email!.Signals.Length);
         Assert.Contains(r.Email.Signals, x => x.Label == "List-Unsubscribe presente");
     }
 
     [Fact]
-    public async Task Deshacer_devuelve_el_correo_a_su_bucket_Y_a_su_confianza()
+    public async Task Undo_restores_both_the_bucket_and_the_confidence()
     {
-        // Devolver solo el bucket no es deshacer: un correo que estaba en "No estoy
-        // seguro" reapareceria afirmado en un cajon. Por eso la migracion 002 guarda
+        // Restoring only the bucket is not undoing: a message that was under "not sure"
+        // would reappear asserted in a bucket. That is why migration 002 stores
         // confidence_before.
-        var id = await Ingerir(Correo("volver"));
+        var id = await Ingest(Message("volver"));
 
-        var original = await _repo.GetAsync(id, Ahora);
-        var bucketOriginal = original!.Bucket;
-        var confianzaOriginal = original.Confidence;
+        var original = await _repo.GetAsync(id, Now);
+        var originalBucket = original!.Bucket;
+        var originalConfidence = original.Confidence;
 
-        await _correcciones.ApplyAsync(id, Bucket.Ruido, Ahora);
-        Assert.Equal("ruido", (await _repo.GetAsync(id, Ahora))!.Bucket);
+        await _corrections.ApplyAsync(id, Bucket.Ruido, Now);
+        Assert.Equal("ruido", (await _repo.GetAsync(id, Now))!.Bucket);
 
-        var r = await _correcciones.UndoAsync(Ahora);
+        var r = await _corrections.UndoAsync(Now);
 
         Assert.NotNull(r.Email);
-        Assert.Equal(bucketOriginal, r.Email.Bucket);
-        Assert.Equal(confianzaOriginal, r.Email.Confidence);
+        Assert.Equal(originalBucket, r.Email.Bucket);
+        Assert.Equal(originalConfidence, r.Email.Confidence);
         Assert.Equal(0, r.Examples);
 
-        // Y vuelve a estar en duda, donde estaba.
-        Assert.Contains((await _repo.ListAsync("duda", 50, null, Ahora)).Items, e => e.Id == id);
+        // And it is back in the doubt bucket, where it was.
+        Assert.Contains((await _repo.ListAsync("duda", 50, null, Now)).Items, e => e.Id == id);
     }
 
     [Fact]
-    public async Task Deshacer_sin_nada_que_deshacer_no_es_un_error()
+    public async Task Undo_with_nothing_to_undo_is_not_an_error()
     {
-        // El Ctrl+Z del front no tiene que llevar la cuenta de la pila.
-        var r = await _correcciones.UndoAsync(Ahora);
+        // The frontend's Ctrl+Z does not have to track whether a stack remains.
+        var r = await _corrections.UndoAsync(Now);
 
         Assert.Null(r.Email);
         Assert.Equal(0, r.Examples);
     }
 
     [Fact]
-    public async Task Deshacer_afecta_siempre_a_la_ultima_correccion_en_vigor()
+    public async Task Undo_always_targets_the_latest_correction_still_in_effect()
     {
-        // El caso que rompe la version ingenua (contar deshaceres y restarlos):
-        // corrige A, corrige B, deshace B, corrige C, deshace -> tiene que deshacer C.
-        var a = await Ingerir(Correo("a"));
-        var b = await Ingerir(Correo("b"));
-        var c = await Ingerir(Correo("c"));
+        // The case that breaks the naive version (count undos and subtract): correct A,
+        // correct B, undo B, correct C, undo -> it has to undo C.
+        var a = await Ingest(Message("a"));
+        var b = await Ingest(Message("b"));
+        var c = await Ingest(Message("c"));
 
-        await _correcciones.ApplyAsync(a, Bucket.Ruido, Ahora);
-        await _correcciones.ApplyAsync(b, Bucket.Ruido, Ahora);
+        await _corrections.ApplyAsync(a, Bucket.Ruido, Now);
+        await _corrections.ApplyAsync(b, Bucket.Ruido, Now);
 
-        var deshaceB = await _correcciones.UndoAsync(Ahora);
-        Assert.Equal(b, deshaceB.Email!.Id);
+        var undoneB = await _corrections.UndoAsync(Now);
+        Assert.Equal(b, undoneB.Email!.Id);
 
-        await _correcciones.ApplyAsync(c, Bucket.Ruido, Ahora);
+        await _corrections.ApplyAsync(c, Bucket.Ruido, Now);
 
-        var deshaceC = await _correcciones.UndoAsync(Ahora);
-        Assert.Equal(c, deshaceC.Email!.Id);
+        var undoneC = await _corrections.UndoAsync(Now);
+        Assert.Equal(c, undoneC.Email!.Id);
 
-        // A sigue corregido: nadie lo ha tocado.
-        Assert.Equal("ruido", (await _repo.GetAsync(a, Ahora))!.Bucket);
-        Assert.Equal(1, deshaceC.Examples);
+        // A is still corrected: nobody touched it.
+        Assert.Equal("ruido", (await _repo.GetAsync(a, Now))!.Bucket);
+        Assert.Equal(1, undoneC.Examples);
 
-        // Y el siguiente deshacer si alcanza a A.
-        var deshaceA = await _correcciones.UndoAsync(Ahora);
-        Assert.Equal(a, deshaceA.Email!.Id);
-        Assert.Equal(0, deshaceA.Examples);
+        // And the next undo does reach A.
+        var undoneA = await _corrections.UndoAsync(Now);
+        Assert.Equal(a, undoneA.Email!.Id);
+        Assert.Equal(0, undoneA.Examples);
     }
 
     [Fact]
-    public async Task El_historial_de_correcciones_no_se_borra_nunca()
+    public async Task The_correction_history_is_never_deleted()
     {
-        // Regla 4 de §1: las correcciones son historial, no estado. Sin el no se puede
-        // reentrenar desde cero ni medir si el modelo mejora.
-        var id = await Ingerir(Correo("historial"));
+        // Rule 4 of §1: corrections are history, not state. Without it there is no
+        // retraining from scratch and no way to measure whether the model improves.
+        var id = await Ingest(Message("historial"));
 
-        await _correcciones.ApplyAsync(id, Bucket.Ruido, Ahora);
-        await _correcciones.UndoAsync(Ahora);
-        await _correcciones.ApplyAsync(id, Bucket.Automatizado, Ahora);
+        await _corrections.ApplyAsync(id, Bucket.Ruido, Now);
+        await _corrections.UndoAsync(Now);
+        await _corrections.ApplyAsync(id, Bucket.Automatizado, Now);
 
         using var cn = _db.Open();
-        var origenes = (await cn.QueryAsync<string>(
+        var origins = (await cn.QueryAsync<string>(
             "SELECT source FROM corrections ORDER BY id")).ToList();
 
-        Assert.Equal(new[] { "user", "undo", "user" }, origenes);
-        Assert.Equal(1, (await _correcciones.CountAsync()).Total);
+        Assert.Equal(new[] { "user", "undo", "user" }, origins);
+        Assert.Equal(1, (await _corrections.CountAsync()).Total);
     }
 
     [Fact]
-    public async Task Corregir_un_correo_inexistente_devuelve_null()
+    public async Task Correcting_a_nonexistent_message_returns_null()
     {
-        Assert.Null(await _correcciones.ApplyAsync("noexiste", Bucket.Responder, Ahora));
+        Assert.Null(await _corrections.ApplyAsync("noexiste", Bucket.Responder, Now));
     }
 
-    /// <summary>Correo minimo de un remitente desconocido, que cae en duda.</summary>
-    private static string Correo(string clave) =>
+    /// <summary>A minimal message from an unknown sender, which lands in doubt.</summary>
+    private static string Message(string key) =>
         $"""
-        From: Remitente {clave} <{clave}@ejemplo.com>
+        From: Remitente {key} <{key}@ejemplo.com>
         To: kevin@sagetasolutions.com
-        Subject: Correo {clave}
-        Message-ID: <{clave}@ejemplo.com>
+        Subject: Message {key}
+        Message-ID: <{key}@ejemplo.com>
         Date: Tue, 3 Nov 2026 08:00:00 +0000
 
-        Cuerpo de {clave}.
+        Cuerpo de {key}.
         """;
 
     [Fact]
-    public void Un_deshacer_vacio_manda_email_null_explicito_no_lo_omite()
+    public void An_empty_undo_sends_an_explicit_null_email_rather_than_omitting_it()
     {
-        // El front distingue `email?: Email` de `email: Email | null`, que son dos
-        // comprobaciones distintas en TypeScript. Aqui null ES la respuesta -"no habia
-        // nada que deshacer"- y no la ausencia de un dato, asi que tiene que viajar.
-        // Las opciones de serializacion son las mismas que configura Program.cs.
+        // The frontend distinguishes `email?: Email` from `email: Email | null`, which
+        // are two different checks in TypeScript. Here null IS the answer - "there was
+        // nothing to undo" - not a missing field, so it has to travel. The serializer
+        // options are the ones Program.cs configures.
         var opciones = new System.Text.Json.JsonSerializerOptions
         {
             PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
@@ -844,25 +844,25 @@ public sealed class IngestionTests : IDisposable
     }
 
     /// <summary>
-    /// Proveedor de embeddings apuntando a una carpeta que no existe. Los tests no
-    /// deben cargar 470 MB de modelo, y de paso esto ejercita el camino de degradacion:
-    /// sin embeddings el resto del sistema tiene que seguir funcionando.
+    /// An embedding provider pointing at a directory that does not exist. Tests must
+    /// not load 470 MB of model, and this exercises the degradation path as a side
+    /// effect: without embeddings the rest of the system has to keep working.
     /// </summary>
-    private static EmbeddingProvider SinEmbeddings() =>
+    private static EmbeddingProvider WithoutEmbeddings() =>
         new(new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["Models:Path"] = "carpeta-que-no-existe" })
                 .Build(),
             NullLogger<EmbeddingProvider>.Instance,
             NullLogger<E5Embedder>.Instance);
 
-    private async Task<string> Ingerir(string eml)
+    private async Task<string> Ingest(string eml)
     {
         using var cn = _db.Open();
-        var r = await _ingestor.IngestAsync(cn, "cuenta", Cargar(eml), 1, "INBOX", eml.Length);
+        var r = await _ingestor.IngestAsync(cn, "cuenta", Load(eml), 1, "INBOX", eml.Length);
         return r.EmailId;
     }
 
-    private static MimeMessage Cargar(string eml)
+    private static MimeMessage Load(string eml)
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(eml.ReplaceLineEndings("\r\n"));
         using var ms = new MemoryStream(bytes);
@@ -870,65 +870,65 @@ public sealed class IngestionTests : IDisposable
     }
 }
 
-/// <summary>El campo <c>time</c> del contrato (§3).</summary>
+/// <summary>The contract's <c>time</c> field (§3).</summary>
 public class RelativeTimeTests
 {
     /// <summary>
-    /// Instante construido en hora LOCAL. El backend corre en la maquina del propio
-    /// usuario -solo escucha en localhost-, asi que su hora local es la del usuario;
-    /// montar los casos en UTC haria que el resultado dependiera del huso.
+    /// An instant built in LOCAL time. The backend runs on the user's own machine -
+    /// it only listens on localhost - so its local time is theirs; building the cases
+    /// in UTC would make the result depend on the timezone.
     /// </summary>
-    private static DateTimeOffset Local(int dia, int hora, int minuto)
+    private static DateTimeOffset Local(int day, int hour, int minute)
     {
-        var sinHuso = new DateTime(2026, 11, dia, hora, minuto, 0, DateTimeKind.Unspecified);
-        return new DateTimeOffset(sinHuso, TimeZoneInfo.Local.GetUtcOffset(sinHuso));
+        var unspecified = new DateTime(2026, 11, day, hour, minute, 0, DateTimeKind.Unspecified);
+        return new DateTimeOffset(unspecified, TimeZoneInfo.Local.GetUtcOffset(unspecified));
     }
 
-    private static readonly DateTimeOffset Ahora = Local(3, 12, 0);
+    private static readonly DateTimeOffset Now = Local(3, 12, 0);
 
     [Fact]
-    public void Hoy_muestra_la_hora()
+    public void Today_shows_the_time()
     {
-        Assert.Equal("9:14", RelativeTime.Format(Local(3, 9, 14), Ahora));
-    }
-
-    [Fact]
-    public void Ayer_se_dice_con_palabras()
-    {
-        var cuando = Ahora.AddDays(-1);
-        Assert.Equal("Ayer", RelativeTime.Format(cuando, Ahora));
+        Assert.Equal("9:14", RelativeTime.Format(Local(3, 9, 14), Now));
     }
 
     [Fact]
-    public void Dentro_de_la_semana_se_usa_el_dia_en_espanol()
+    public void Yesterday_is_spelled_out()
     {
-        // 2026-11-03 es martes; tres dias antes es sabado.
-        var cuando = Ahora.AddDays(-3);
-        Assert.Equal("Sáb", RelativeTime.Format(cuando, Ahora));
+        var cuando = Now.AddDays(-1);
+        Assert.Equal("Ayer", RelativeTime.Format(cuando, Now));
     }
 
     [Fact]
-    public void Mas_antiguo_lleva_dia_y_mes_abreviado()
+    public void Within_the_week_the_weekday_name_is_used()
     {
-        var cuando = Ahora.AddDays(-22);
-        Assert.Equal("12 oct", RelativeTime.Format(cuando, Ahora));
+        // 2026-11-03 is a Tuesday; three days earlier is a Saturday.
+        var cuando = Now.AddDays(-3);
+        Assert.Equal("Sáb", RelativeTime.Format(cuando, Now));
     }
 
     [Fact]
-    public void El_formato_no_depende_de_la_cultura_de_la_maquina()
+    public void Older_than_a_week_shows_day_and_abbreviated_month()
     {
-        // Si usara la cultura del sistema, la misma API devolveria "Mon" o "Mo"
-        // segun donde corre el backend y el front no sabria que esperar.
-        var previa = Thread.CurrentThread.CurrentCulture;
+        var cuando = Now.AddDays(-22);
+        Assert.Equal("12 oct", RelativeTime.Format(cuando, Now));
+    }
+
+    [Fact]
+    public void The_format_does_not_depend_on_the_machine_culture()
+    {
+        // With the system culture, the same API would return "Mon" or "Mo" depending
+        // on where the backend runs, and the frontend would not know what to expect.
+        var previous = Thread.CurrentThread.CurrentCulture;
         try
         {
             Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("en-US");
-            Assert.Equal("Ayer", RelativeTime.Format(Ahora.AddDays(-1), Ahora));
-            Assert.Equal("Sáb", RelativeTime.Format(Ahora.AddDays(-3), Ahora));
+            Assert.Equal("Ayer", RelativeTime.Format(Now.AddDays(-1), Now));
+            Assert.Equal("Sáb", RelativeTime.Format(Now.AddDays(-3), Now));
         }
         finally
         {
-            Thread.CurrentThread.CurrentCulture = previa;
+            Thread.CurrentThread.CurrentCulture = previous;
         }
     }
 }

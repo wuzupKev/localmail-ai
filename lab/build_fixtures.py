@@ -1,28 +1,30 @@
 # -*- coding: utf-8 -*-
-"""Genera ficheros .eml de prueba en backend/fixtures/.
+"""Generates test .eml files in backend/fixtures/.
 
-Cuaderno de laboratorio: NO se distribuye. El producto solo sabe leer .eml de una
-carpeta (`dotnet run --project src/LocalMailAI.Api -- --seed fixtures`); los datos de
-ejemplo viven fuera de el.
+Lab notebook: NOT shipped. The product only knows how to read .eml files from a
+folder (`dotnet run --project src/LocalMailAI.Api -- --seed fixtures`); the sample
+data lives outside it.
 
-Los casos son los de src/lib/mock.ts, pero con las cabeceras que de verdad disparan
-las senales de §6: List-Unsubscribe, Auto-Submitted, Precedence, Authentication-Results,
-To frente a Cc, y References para formar hilos. Un .eml sin esas cabeceras no probaria
-nada del triage.
+The cases come from src/lib/mock.ts, but with the headers that actually trigger
+the §6 signals: List-Unsubscribe, Auto-Submitted, Precedence,
+Authentication-Results, To versus Cc, and References to form threads. An .eml
+without those headers would test nothing about triage.
 
-Sirven para dos cosas:
-  - poblar la bandeja sin cuenta IMAP, para ver el front contra el backend real;
-  - material de inspeccion para el hito 3 (normalizacion), con HTML, citas y firmas.
+They serve two purposes:
+  - populating an inbox without an IMAP account, to see the frontend against the
+    real backend;
+  - inspection material for milestone 3 (normalisation), with HTML, quotes and
+    signatures.
 """
 import email.utils
 import pathlib
 from email.message import EmailMessage
 
 YO = "kevin@sagetasolutions.com"
-DESTINO = pathlib.Path(__file__).resolve().parent.parent / "fixtures"
+DESTINATION = pathlib.Path(__file__).resolve().parent.parent / "fixtures"
 
-# (nombre, remitente, asunto, cuerpo, es_html, cabeceras, desplazamiento_horas, hilo)
-CASOS = [
+# (name, sender, subject, body, is_html, headers, desplazamiento_horas, thread)
+CASES = [
     (
         "01-ana-reunion",
         ("Ana Molina", "ana.molina@estudiolegal.es"),
@@ -35,7 +37,7 @@ CASOS = [
         False,
         {"Authentication-Results": "mx.google.com; dkim=pass header.i=@estudiolegal.es; spf=pass"},
         -2,
-        "hilo-reunion-jueves",
+        "thread-reunion-jueves",
     ),
     (
         "02-factura-nordia",
@@ -60,7 +62,7 @@ CASOS = [
         False,
         {"Authentication-Results": "mx.google.com; dkim=pass; spf=pass"},
         -26,
-        "hilo-propuesta-migracion",
+        "thread-propuesta-migracion",
     ),
     (
         "04-lucia-justificantes",
@@ -72,7 +74,7 @@ CASOS = [
         False,
         {},
         -28,
-        "hilo-trimestral",
+        "thread-trimestral",
     ),
     (
         "05-github-pr",
@@ -202,13 +204,13 @@ CASOS = [
         False,
         {},
         -3,
-        "hilo-incidencia-produccion",
+        "thread-incidencia-produccion",
     ),
 ]
 
-# Los tres mensajes anteriores de Pablo, para que "Tercer mensaje sin respuesta tuya"
-# tenga de donde salir: la senal depende del estado del hilo, no de un solo correo.
-SEGUIMIENTO = [
+# Pablo's earlier messages, so "Tercer mensaje sin respuesta tuya" has something to
+# come from: the signal depends on thread state, not on a single message.
+FOLLOW_UPS = [
     ("16a-pablo-incidencia-1", "Incidencia en produccion",
      "Buenos días,\n\nTenemos el servicio de facturación caído desde esta mañana.\n", -120),
     ("16b-pablo-incidencia-2", "Re: Incidencia en produccion",
@@ -216,58 +218,58 @@ SEGUIMIENTO = [
 ]
 
 
-def construir(nombre, remitente, asunto, cuerpo, es_html, cabeceras, horas, hilo, en_cc=False):
+def build(name, sender, subject, body, is_html, headers, hours, thread, in_cc=False):
     msg = EmailMessage()
-    msg["From"] = email.utils.formataddr(remitente)
-    if en_cc:
+    msg["From"] = email.utils.formataddr(sender)
+    if in_cc:
         msg["To"] = "comite@universidadsur.edu"
         msg["Cc"] = YO
     else:
         msg["To"] = YO
-    msg["Subject"] = asunto
+    msg["Subject"] = subject
     msg["Date"] = email.utils.format_datetime(
         email.utils.parsedate_to_datetime("Tue, 03 Nov 2026 12:00:00 +0100")
-        + __import__("datetime").timedelta(hours=horas)
+        + __import__("datetime").timedelta(hours=hours)
     )
-    msg["Message-ID"] = f"<{nombre}@localmail.fixtures>"
+    msg["Message-ID"] = f"<{name}@localmail.fixtures>"
 
-    if hilo:
-        msg["References"] = f"<{hilo}@localmail.fixtures>"
-        msg["In-Reply-To"] = f"<{hilo}@localmail.fixtures>"
+    if thread:
+        msg["References"] = f"<{thread}@localmail.fixtures>"
+        msg["In-Reply-To"] = f"<{thread}@localmail.fixtures>"
 
-    for k, v in cabeceras.items():
+    for k, v in headers.items():
         msg[k] = v
 
-    if es_html:
+    if is_html:
         msg.set_content("Versión en texto no disponible.")
-        msg.add_alternative(cuerpo, subtype="html")
+        msg.add_alternative(body, subtype="html")
     else:
-        msg.set_content(cuerpo)
+        msg.set_content(body)
 
     return msg
 
 
 def main() -> None:
-    DESTINO.mkdir(parents=True, exist_ok=True)
-    for viejo in DESTINO.glob("*.eml"):
-        viejo.unlink()
+    DESTINATION.mkdir(parents=True, exist_ok=True)
+    for stale in DESTINATION.glob("*.eml"):
+        stale.unlink()
 
-    escritos = 0
+    written = 0
 
-    for nombre, remitente, asunto, cuerpo, es_html, cabeceras, horas, hilo in CASOS:
-        # El acta del comite llega en Cc: es la senal negativa de mock.ts e6.
-        en_cc = nombre.startswith("06-")
-        msg = construir(nombre, remitente, asunto, cuerpo, es_html, cabeceras, horas, hilo, en_cc)
-        (DESTINO / f"{nombre}.eml").write_bytes(msg.as_bytes())
-        escritos += 1
+    for name, sender, subject, body, is_html, headers, hours, thread in CASES:
+        # The committee minutes arrive in Cc: that is the negative signal of mock.ts e6.
+        in_cc = name.startswith("06-")
+        msg = build(name, sender, subject, body, is_html, headers, hours, thread, in_cc)
+        (DESTINATION / f"{name}.eml").write_bytes(msg.as_bytes())
+        written += 1
 
-    for nombre, asunto, cuerpo, horas in SEGUIMIENTO:
-        msg = construir(nombre, ("Pablo Esteban", "pablo.esteban@clientemayor.com"),
-                        asunto, cuerpo, False, {}, horas, "hilo-incidencia-produccion")
-        (DESTINO / f"{nombre}.eml").write_bytes(msg.as_bytes())
-        escritos += 1
+    for name, subject, body, hours in FOLLOW_UPS:
+        msg = build(name, ("Pablo Esteban", "pablo.esteban@clientemayor.com"),
+                        subject, body, False, {}, hours, "thread-incidencia-produccion")
+        (DESTINATION / f"{name}.eml").write_bytes(msg.as_bytes())
+        written += 1
 
-    print(f"{escritos} ficheros .eml en {DESTINO}")
+    print(f"{written} .eml files in {DESTINATION}")
 
 
 if __name__ == "__main__":

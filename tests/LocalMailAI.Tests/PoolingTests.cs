@@ -3,58 +3,57 @@ using LocalMailAI.Api.Embeddings;
 namespace LocalMailAI.Tests;
 
 /// <summary>
-/// El post-procesado de los embeddings, con valores a mano y sin cargar el modelo.
+/// Embedding post-processing, with hand-built values and without loading the model.
 ///
-/// Ninguna de estas operaciones falla con una excepcion si esta mal: dan vectores
-/// plausibles y peores, y la busqueda y el clasificador se degradan sin que nada avise.
-/// Son exactamente la clase de calculo que hay que fijar con un test.
+/// None of these operations throws when it is wrong: they return plausible, worse
+/// numbers, and search and the classifier degrade with nothing to warn anyone. They
+/// are exactly the kind of arithmetic that has to be pinned by a test.
 /// </summary>
 public class PoolingTests
 {
     [Fact]
-    public void El_relleno_no_entra_en_la_media()
+    public void Padding_does_not_enter_the_mean()
     {
-        // EL test importante. Si el pooling promediara tambien las posiciones de
-        // relleno, el mismo texto daria vectores distintos segun con quien le toque
-        // compartir lote, y nada lo delataria.
-        float[] dosTokens = [1, 2, /**/ 3, 4];
-        float[] mismosDosMasRelleno = [1, 2, /**/ 3, 4, /**/ 99, 99, /**/ 99, 99];
+        // THE important test. If pooling averaged the padding positions too, the same
+        // text would produce different vectors depending on who it shares a batch
+        // with, and nothing would give it away.
+        float[] twoTokens = [1, 2, /**/ 3, 4];
+        float[] sameTwoPlusPadding = [1, 2, /**/ 3, 4, /**/ 99, 99, /**/ 99, 99];
 
-        var sinRelleno = Pooling.MeanPool(dosTokens, [1, 1], dim: 2);
-        var conRelleno = Pooling.MeanPool(mismosDosMasRelleno, [1, 1, 0, 0], dim: 2);
+        var withoutPadding = Pooling.MeanPool(twoTokens, [1, 1], dim: 2);
+        var withPadding = Pooling.MeanPool(sameTwoPlusPadding, [1, 1, 0, 0], dim: 2);
 
-        Assert.Equal(sinRelleno, conRelleno);
-        Assert.Equal([2f, 3f], sinRelleno);
+        Assert.Equal(withoutPadding, withPadding);
+        Assert.Equal([2f, 3f], withoutPadding);
     }
 
     [Fact]
-    public void La_media_es_de_los_tokens_reales_no_de_todas_las_posiciones()
+    public void The_mean_divides_by_real_tokens_not_by_all_positions()
     {
-        // Tres posiciones, dos reales: la media tiene que dividir entre 2, no entre 3.
-        float[] capa = [2, /**/ 4, /**/ 1000];
+        // Three positions, two real: the mean must divide by 2, not by 3.
+        float[] layer = [2, /**/ 4, /**/ 1000];
 
-        Assert.Equal([3f], Pooling.MeanPool(capa, [1, 1, 0], dim: 1));
+        Assert.Equal([3f], Pooling.MeanPool(layer, [1, 1, 0], dim: 1));
     }
 
     [Fact]
-    public void Una_mascara_entera_a_cero_no_da_NaN()
+    public void An_all_zero_mask_does_not_produce_NaN()
     {
-        // No deberia llegar nunca, pero un NaN se propagaria a todos los cosenos sin
-        // decir de donde salio.
-        // Un token de dimension 3, con la mascara a cero.
+        // It should never happen, but a NaN would propagate into every cosine without
+        // saying where it came from.
         var v = Pooling.MeanPool([1, 2, 3], [0], dim: 3);
 
         Assert.All(v, x => Assert.False(float.IsNaN(x)));
     }
 
     [Fact]
-    public void Una_capa_y_una_mascara_que_no_cuadran_fallan_en_vez_de_dar_basura()
+    public void A_layer_and_mask_that_do_not_match_fail_instead_of_returning_garbage()
     {
         Assert.Throws<ArgumentException>(() => Pooling.MeanPool([1, 2, 3], [1, 1], dim: 2));
     }
 
     [Fact]
-    public void Normalizar_deja_norma_uno()
+    public void Normalising_yields_unit_length()
     {
         var v = Pooling.Normalize([3, 4]);
 
@@ -64,7 +63,7 @@ public class PoolingTests
     }
 
     [Fact]
-    public void Normalizar_el_vector_cero_no_revienta()
+    public void Normalising_the_zero_vector_does_not_blow_up()
     {
         var v = Pooling.Normalize([0, 0, 0]);
 
@@ -72,51 +71,51 @@ public class PoolingTests
     }
 
     [Fact]
-    public void El_recorte_conserva_el_cierre_de_secuencia()
+    public void Truncation_keeps_the_end_of_sequence_token()
     {
-        // Cortar por lo sano dejaria la secuencia sin su </s>, y el modelo se entreno
-        // siempre con el.
-        var largo = new uint[Pooling.MaxTokens + 50];
-        Array.Fill(largo, 7u);
-        largo[0] = Pooling.BosId;
-        largo[^1] = Pooling.EosId;
+        // Cutting bluntly would leave the sequence without its </s>, and the model was
+        // trained with it always present.
+        var longSequence = new uint[Pooling.MaxTokens + 50];
+        Array.Fill(longSequence, 7u);
+        longSequence[0] = Pooling.BosId;
+        longSequence[^1] = Pooling.EosId;
 
-        var recortado = Pooling.Truncate(largo);
+        var truncated = Pooling.Truncate(longSequence);
 
-        Assert.Equal(Pooling.MaxTokens, recortado.Length);
-        Assert.Equal(Pooling.BosId, recortado[0]);
-        Assert.Equal(Pooling.EosId, recortado[^1]);
+        Assert.Equal(Pooling.MaxTokens, truncated.Length);
+        Assert.Equal(Pooling.BosId, truncated[0]);
+        Assert.Equal(Pooling.EosId, truncated[^1]);
     }
 
     [Fact]
-    public void Lo_que_cabe_no_se_toca()
+    public void What_fits_is_left_alone()
     {
-        uint[] corto = [0, 100, 200, 2];
+        uint[] shortSequence = [0, 100, 200, 2];
 
-        Assert.Same(corto, Pooling.Truncate(corto));
+        Assert.Same(shortSequence, Pooling.Truncate(shortSequence));
     }
 
     [Fact]
-    public void El_blob_va_y_vuelve_sin_perder_nada()
+    public void The_blob_round_trips_without_loss()
     {
-        // float32 little-endian es lo que declara la columna `vec` de §4. Si la
-        // serializacion se desalineara, los vectores guardados serian ruido.
+        // float32 little-endian is what the `vec` column in §4 declares. If the
+        // serialisation went out of alignment, the stored vectors would be noise.
         float[] original = [0.1f, -0.2f, 3.5f, float.MaxValue, float.MinValue, 0f];
 
-        var vuelta = Pooling.FromBlob(Pooling.ToBlob(original));
+        var back = Pooling.FromBlob(Pooling.ToBlob(original));
 
-        Assert.Equal(original, vuelta);
+        Assert.Equal(original, back);
         Assert.Equal(original.Length * 4, Pooling.ToBlob(original).Length);
     }
 
     [Fact]
-    public void Un_blob_a_medias_se_rechaza()
+    public void A_truncated_blob_is_rejected()
     {
         Assert.Throws<ArgumentException>(() => Pooling.FromBlob(new byte[7]));
     }
 
     [Fact]
-    public void El_coseno_de_un_vector_consigo_mismo_es_uno()
+    public void The_cosine_of_a_vector_with_itself_is_one()
     {
         var v = Pooling.Normalize([1, 2, 3, 4]);
 
@@ -124,13 +123,13 @@ public class PoolingTests
     }
 
     [Fact]
-    public void El_coseno_de_dos_vectores_perpendiculares_es_cero()
+    public void The_cosine_of_two_perpendicular_vectors_is_zero()
     {
         Assert.Equal(0f, Pooling.Cosine([1, 0], [0, 1]), 5);
     }
 
     [Fact]
-    public void Comparar_dimensiones_distintas_falla()
+    public void Comparing_different_dimensions_fails()
     {
         Assert.Throws<ArgumentException>(() => Pooling.Cosine([1, 0], [0, 1, 0]));
     }

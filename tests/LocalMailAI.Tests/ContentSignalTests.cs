@@ -5,13 +5,16 @@ using MimeKit;
 namespace LocalMailAI.Tests;
 
 /// <summary>
-/// Las dos senales de contenido que dan evidencia PROPIA de "informativo", en vez de
-/// llegar a ese cajon por descarte. Salen de mock.ts (e6 y e15) pero no estaban en la
-/// tabla de §6.
+/// The two content signals that give "informativo" evidence OF ITS OWN, rather than
+/// it being reached by elimination. They come from mock.ts (e6 and e15) but were
+/// missing from the §6 table.
+///
+/// The sample bodies are Spanish because the signals match Spanish mail; the product's
+/// users write in Spanish.
 /// </summary>
 public class ContentSignalTests
 {
-    private static readonly IReadOnlySet<string> Yo =
+    private static readonly IReadOnlySet<string> Me =
         new HashSet<string> { "kevin@sagetasolutions.com" };
 
     [Theory]
@@ -20,41 +23,41 @@ public class ContentSignalTests
     [InlineData("Adjunto el acta. Solo para tu informacion.")]
     [InlineData("FYI, adjunto el acta del comite.")]
     [InlineData("No action required on your side.")]
-    public void Detecta_que_el_correo_dice_no_requerir_accion(string cuerpo)
+    public void Detects_that_the_message_says_no_action_is_required(string body)
     {
-        var senales = Calcular(cuerpo);
+        var signals = Compute(body);
 
-        Assert.Contains(senales, s => s.Kind == SignalKind.ExplicitlyNoAction);
+        Assert.Contains(signals, s => s.Kind == SignalKind.ExplicitlyNoAction);
     }
 
     [Theory]
     [InlineData("Hemos recibido su solicitud. Un agente la revisara en 48 horas.")]
     [InlineData("Su solicitud ha sido registrada correctamente.")]
     [InlineData("We have received your request.")]
-    public void Detecta_un_acuse_de_recibo(string cuerpo)
+    public void Detects_an_acknowledgement_of_receipt(string body)
     {
-        var senales = Calcular(cuerpo);
+        var signals = Compute(body);
 
-        Assert.Contains(senales, s => s.Kind == SignalKind.Acknowledgement);
+        Assert.Contains(signals, s => s.Kind == SignalKind.Acknowledgement);
     }
 
     [Theory]
     [InlineData("Necesito los datos del Q3 antes del viernes.")]
     [InlineData("Te confirmo la reunion del jueves a las 10.")]
-    public void No_las_inventa_donde_no_estan(string cuerpo)
+    public void Does_not_invent_them_where_they_are_absent(string body)
     {
-        var senales = Calcular(cuerpo);
+        var signals = Compute(body);
 
-        Assert.DoesNotContain(senales, s => s.Kind == SignalKind.ExplicitlyNoAction);
-        Assert.DoesNotContain(senales, s => s.Kind == SignalKind.Acknowledgement);
+        Assert.DoesNotContain(signals, s => s.Kind == SignalKind.ExplicitlyNoAction);
+        Assert.DoesNotContain(signals, s => s.Kind == SignalKind.Acknowledgement);
     }
 
     [Fact]
-    public void El_acta_del_comite_sale_de_duda_gracias_a_la_senal()
+    public void The_committee_minutes_leave_the_doubt_bucket_thanks_to_the_signal()
     {
-        // Este es el caso que la evaluacion senalaba: el acta se quedaba en 0.49, bajo
-        // el umbral, porque sus unicas senales eran debiles. Con evidencia propia pasa
-        // a pronunciarse, y acierta.
+        // This is the case the evaluation flagged: the minutes sat at 0.49, below the
+        // threshold, because their only signals were weak. With evidence of its own it
+        // commits to an answer, and gets it right.
         var facts = Facts(
             """
             From: Marta Ruiz <marta.ruiz@universidadsur.edu>
@@ -68,22 +71,22 @@ public class ContentSignalTests
 
         var ctx = new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             SenderReceived = 0,
             CleanBody = "Hola a todos,\n\nAdjunto el acta de la reunión del comité del 28 de octubre.\n\n"
                       + "No requiere acción por vuestra parte, es solo para que quede constancia.",
         };
 
-        var senales = DeterministicSignals.Compute(facts, ctx);
-        var c = SignalBaseline.Classify(senales, ctx);
+        var signals = DeterministicSignals.Compute(facts, ctx);
+        var c = SignalBaseline.Classify(signals, ctx);
 
-        Assert.Contains(senales, s => s.Kind == SignalKind.ExplicitlyNoAction);
+        Assert.Contains(signals, s => s.Kind == SignalKind.ExplicitlyNoAction);
         Assert.Equal(Bucket.Informativo, c.Bucket);
         Assert.True(c.Confidence >= SignalBaseline.ConfidenceThreshold,
-            $"confianza {c.Confidence}, deberia llegar al umbral {SignalBaseline.ConfidenceThreshold}");
+            $"confidence {c.Confidence} should reach the threshold {SignalBaseline.ConfidenceThreshold}");
     }
 
-    private static List<WeightedSignal> Calcular(string cuerpo)
+    private static List<WeightedSignal> Compute(string body)
     {
         var facts = Facts(
             """
@@ -96,9 +99,9 @@ public class ContentSignalTests
 
         return DeterministicSignals.Compute(facts, new SignalContext
         {
-            OwnAddresses = Yo,
+            OwnAddresses = Me,
             SenderReceived = 10,
-            CleanBody = cuerpo,
+            CleanBody = body,
         });
     }
 

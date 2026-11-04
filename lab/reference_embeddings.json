@@ -1,7 +1,7 @@
 {
   "model": "intfloat/multilingual-e5-small",
   "onnxruntimeVersion": "1.31.1",
-  "pooling": "mean ponderado por attention_mask, luego L2",
+  "pooling": "mask-weighted mean, then L2",
   "maxLength": 512,
   "expectedCosines": {
     "reunion_query_vs_passage": 0.8333520400040495,
