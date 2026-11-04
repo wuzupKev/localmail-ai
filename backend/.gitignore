@@ -1,0 +1,21 @@
+# Compilacion
+bin/
+obj/
+
+# Pesos de modelos: 17 MB de tokenizer.json no van en git.
+# Se recrean con: python backend/lab/dump_reference.py
+models/
+
+# Base de datos local
+*.db
+*.db-wal
+*.db-shm
+
+# Salida de una pasada de comprobacion, no fuente.
+lab/parity_report.json
+
+# Los ficheros de referencia del laboratorio (corpus.json, reference_ids.json,
+# reference_embeddings.json) SI se publican a proposito: son 196 KB que permiten
+# comprobar una instalacion con las herramientas de paridad SIN instalar Python.
+# Regenerarlos requiere Python; tenerlos aqui quita esa dependencia a quien solo
+# quiere verificar que su copia esta bien.

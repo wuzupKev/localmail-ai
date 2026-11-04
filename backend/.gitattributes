@@ -1,0 +1,10 @@
+# Normalizar finales de linea: el repositorio guarda LF y cada quien trabaja con los
+# suyos. Sin esto, un clon en Windows y otro en Linux producen diferencias falsas.
+* text=auto eol=lf
+
+# Los .eml son fixtures de correo: su formato importa y no se tocan.
+*.eml -text
+
+# Binarios.
+*.png binary
+*.onnx binary

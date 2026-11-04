@@ -1,0 +1,26 @@
+{
+  "set": "fixtures-18",
+  "representativo": false,
+  "aviso": "ESTE NO ES EL SET DEL HITO 5. Son 18 correos sinteticos etiquetados segun la intencion de producto que describe src/lib/mock.ts, no 250 correos reales etiquetados a mano. Sirve para que la maquinaria de medicion exista y para tener una linea base que el clasificador del hito 6 tenga que superar. Un numero sacado de aqui NO se puede presentar como la precision del producto: 18 correos inventados por quien escribe el clasificador no demuestran nada sobre correo real.",
+  "etiquetado_por": "las asignaciones de bucket de src/lib/mock.ts, que son la intencion de producto del front",
+  "labels": [
+    { "file": "01-ana-reunion.eml",          "bucket": "responder",    "por_que": "pregunta directa, hilo en el que participas, historial de respuestas" },
+    { "file": "02-factura-nordia.eml",       "bucket": "responder",    "por_que": "importe y fecha limite: hay que pagar. mock.ts lo pone en responder con confianza baja" },
+    { "file": "03-diego-q3.eml",             "bucket": "responder",    "por_que": "peticion explicita de datos con fecha limite" },
+    { "file": "04-lucia-justificantes.eml",  "bucket": "responder",    "por_que": "peticion explicita, bloquea un tramite" },
+    { "file": "05-github-pr.eml",            "bucket": "responder",    "por_que": "remitente automatizado pero con mencion directa: requiere accion tuya" },
+    { "file": "06-acta-comite.eml",          "bucket": "informativo",  "por_que": "vas en Cc y dice explicitamente que no requiere accion" },
+    { "file": "07-resumen-semanal.eml",      "bucket": "informativo",  "por_que": "recurrente, se lee, nunca se responde" },
+    { "file": "08-banco-movimiento.eml",     "bucket": "informativo",  "por_que": "notificacion transaccional que el usuario si quiere ver" },
+    { "file": "09-vercel-despliegue.eml",    "bucket": "automatizado", "por_que": "maquina, pero el usuario lo abre: no es ruido" },
+    { "file": "10-jira-ticket.eml",          "bucket": "automatizado", "por_que": "cambio de estado sin mencion directa" },
+    { "file": "11-docker-limite.eml",        "bucket": "automatizado", "por_que": "aviso de servicio que conviene ver" },
+    { "file": "12-zentrix-newsletter.eml",   "bucket": "ruido",        "por_que": "marketing, nunca abierto" },
+    { "file": "13-tecnotienda-oferta.eml",   "bucket": "ruido",        "por_que": "promocion comercial con lenguaje de urgencia" },
+    { "file": "14-deves-earlybird.eml",      "bucket": "ruido",        "por_que": "boletin apenas abierto" },
+    { "file": "15-proveedor-solicitud.eml",  "bucket": "informativo",  "por_que": "acuse de recibo: no hay nada que responder" },
+    { "file": "16-pablo-incidencia.eml",     "bucket": "responder",    "por_que": "tercer mensaje sin respuesta de un cliente: riesgo de escalado" },
+    { "file": "16a-pablo-incidencia-1.eml",  "bucket": "responder",    "por_que": "apertura del hilo de la incidencia, de un cliente con historial" },
+    { "file": "16b-pablo-incidencia-2.eml",  "bucket": "responder",    "por_que": "seguimiento sin respuesta" }
+  ]
+}

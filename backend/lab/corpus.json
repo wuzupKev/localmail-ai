@@ -1,0 +1,402 @@
+[
+  {
+    "id": "c000",
+    "text": "Hola Kevin,\nTe viene bien a las 10 en lugar de las 9? Me ha surgido una vista a primera hora y no llego a tiempo.\nSi no puedes, lo dejamos para el viernes a la misma hora. Dime algo cuando puedas y lo cierro con el resto del equipo.\nUn saludo,\nAna"
+  },
+  {
+    "id": "c001",
+    "text": "Estimado cliente,\nLe recordamos que la factura F-2291 por importe de 348,00 EUR vence el 10/11/2026.\nPuede realizar el pago desde su area de cliente o mediante transferencia a la cuenta habitual."
+  },
+  {
+    "id": "c002",
+    "text": "Kevin,\nNecesito los datos de consumo del Q3 antes del viernes para cerrar la propuesta del cliente.\nCon lo que me pasaste de Q2 no me cuadra el crecimiento, puedes revisarlo?\nGracias,\nDiego"
+  },
+  {
+    "id": "c003",
+    "text": "Buenos dias Kevin,\nHe revisado lo que me mandaste y faltan los justificantes de octubre (dos gastos de software).\nSin ellos no puedo presentar el trimestral. Me los puedes enviar esta semana?"
+  },
+  {
+    "id": "c004",
+    "text": "@mrodriguez ha solicitado tu revision en el pull request #14 (Normalizador de citas y firmas).\n12 archivos modificados, +431 -87."
+  },
+  {
+    "id": "c005",
+    "text": "Hola a todos,\nAdjunto el acta de la reunion del comite del 28 de octubre.\nNo requiere accion por vuestra parte, es solo para que quede constancia."
+  },
+  {
+    "id": "c006",
+    "text": "Entregas cerradas: 7.\nIncidencias abiertas: 3.\nProxima demo: 12 de noviembre."
+  },
+  {
+    "id": "c007",
+    "text": "Se ha registrado un cargo de 89,90 EUR el 02/11/2026 en tu cuenta terminada en 4471."
+  },
+  {
+    "id": "c008",
+    "text": "Tu despliegue se ha completado correctamente en 48 s."
+  },
+  {
+    "id": "c009",
+    "text": "El ticket SAG-1182 ha cambiado de estado a En revision."
+  },
+  {
+    "id": "c010",
+    "text": "Has usado 180 de 200 pulls anonimos este mes."
+  },
+  {
+    "id": "c011",
+    "text": "Descubre las herramientas que estan cambiando la forma de trabajar."
+  },
+  {
+    "id": "c012",
+    "text": "Tu carrito te espera. Aprovecha antes de medianoche."
+  },
+  {
+    "id": "c013",
+    "text": "No te pierdas el descuento de inscripcion anticipada."
+  },
+  {
+    "id": "c014",
+    "text": "Hemos recibido su solicitud. Un agente la revisara en 48 horas."
+  },
+  {
+    "id": "c015",
+    "text": "Buenos dias,\nSeguimos sin respuesta del equipo tecnico sobre la incidencia del lunes. Hay alguna novedad?\nEs el tercer correo que envio sobre esto."
+  },
+  {
+    "id": "c016",
+    "text": "Re: Confirmacion reunion del jueves"
+  },
+  {
+    "id": "c017",
+    "text": "Aviso de vencimiento - factura F-2291"
+  },
+  {
+    "id": "c018",
+    "text": "Propuesta migracion - faltan tus numeros del Q3"
+  },
+  {
+    "id": "c019",
+    "text": "Documentacion trimestral - faltan dos justificantes"
+  },
+  {
+    "id": "c020",
+    "text": "[localmail-ai] PR #14: normalizador de citas - revision solicitada"
+  },
+  {
+    "id": "c021",
+    "text": "Acta de la reunion del comite - 28 de octubre"
+  },
+  {
+    "id": "c022",
+    "text": "Resumen semanal del equipo - semana 44"
+  },
+  {
+    "id": "c023",
+    "text": "Movimiento en tu cuenta terminada en 4471"
+  },
+  {
+    "id": "c024",
+    "text": "Despliegue correcto - localmail-ai (produccion)"
+  },
+  {
+    "id": "c025",
+    "text": "SAG-1182 cambio de estado a En revision"
+  },
+  {
+    "id": "c026",
+    "text": "Tu limite de pulls se reinicia en 6 horas"
+  },
+  {
+    "id": "c027",
+    "text": "7 formas de multiplicar tu productividad con IA"
+  },
+  {
+    "id": "c028",
+    "text": "Ultima oportunidad: -40% solo hoy"
+  },
+  {
+    "id": "c029",
+    "text": "Quedan 3 dias para el early bird"
+  },
+  {
+    "id": "c030",
+    "text": "Su solicitud de acceso ha sido registrada"
+  },
+  {
+    "id": "c031",
+    "text": "Re: Re: Incidencia en produccion - seguimiento"
+  },
+  {
+    "id": "c032",
+    "text": "Ana Molina <ana.molina@estudiolegal.es>"
+  },
+  {
+    "id": "c033",
+    "text": "Facturacion Nordia <facturacion@nordia-cloud.com>"
+  },
+  {
+    "id": "c034",
+    "text": "Diego Ferran <d.ferran@sagetasolutions.com>"
+  },
+  {
+    "id": "c035",
+    "text": "Lucia Herrera <lucia@herrera-asesoria.es>"
+  },
+  {
+    "id": "c036",
+    "text": "GitHub <notifications@github.com>"
+  },
+  {
+    "id": "c037",
+    "text": "Marta Ruiz <marta.ruiz@universidadsur.edu>"
+  },
+  {
+    "id": "c038",
+    "text": "Atlassian Jira <jira@sageta.atlassian.net>"
+  },
+  {
+    "id": "c039",
+    "text": "soporte@proveedor-nuevo.com"
+  },
+  {
+    "id": "c040",
+    "text": "¿Te viene bien a las 10 en lugar de las 9? Me ha surgido una vista a primera hora y no llego a tiempo."
+  },
+  {
+    "id": "c041",
+    "text": "Estimado cliente: le recordamos que la factura F-2291 por importe de 348,00 € vence el 10/11/2026."
+  },
+  {
+    "id": "c042",
+    "text": "Necesito los datos de consumo del Q3 antes del viernes. ¿Puedes revisarlo? Con lo de Q2 no me cuadra."
+  },
+  {
+    "id": "c043",
+    "text": "Añado a Begoña y a Íñigo en copia. La reunión será el miércoles a las 9:30 en la sala pequeña."
+  },
+  {
+    "id": "c044",
+    "text": "Adjunto el acta de la reunión del comité. No requiere acción por vuestra parte, es sólo constancia."
+  },
+  {
+    "id": "c045",
+    "text": "Seguimos sin respuesta del equipo técnico sobre la incidencia del lunes. ¿Hay alguna novedad?"
+  },
+  {
+    "id": "c046",
+    "text": "Hola Kevin: el envío llegó roto y el día 3 vence el plazo de reclamación. ¿Lo gestionas tú o yo?"
+  },
+  {
+    "id": "c047",
+    "text": "Señores: ruego confirmación de recepción. Atentamente, José Ángel Muñoz Peña — Dpto. Administración"
+  },
+  {
+    "id": "c048",
+    "text": "El 2 de noviembre de 2026, 9:14, Ana Molina <ana.molina@estudiolegal.es> escribió:\n> Te confirmo la reunión del jueves a las 9.\n> Un saludo,\n> Ana"
+  },
+  {
+    "id": "c049",
+    "text": "-----Original Message-----\nFrom: Diego Ferran\nSent: Monday, November 2, 2026 8:02 AM\nTo: Kevin Chavarria\nSubject: RE: Propuesta\n\nNecesito los numeros del Q3."
+  },
+  {
+    "id": "c050",
+    "text": "Gracias,\nDiego\n\n--\nDiego Ferrán | Sageta Solutions\nTel. +34 611 22 33 44 | d.ferran@sagetasolutions.com\nAviso legal: este mensaje y sus anexos son confidenciales."
+  },
+  {
+    "id": "c051",
+    "text": "On Mon, Nov 2, 2026 at 8:02 AM Pablo Esteban <pablo.esteban@clientemayor.com> wrote:\n>> Es el tercer correo que envío sobre esto.\n>> Un saludo"
+  },
+  {
+    "id": "c052",
+    "text": "Sent from my iPhone\n\n> El 1 nov 2026, a las 22:10, soporte@proveedor-nuevo.com escribió:\n>\n> Hemos recibido su solicitud."
+  },
+  {
+    "id": "c053",
+    "text": "Facturación pendiente: añádeme en copia, Begoña."
+  },
+  {
+    "id": "c054",
+    "text": "Facturación pendiente: añádeme en copia, Begóña."
+  },
+  {
+    "id": "c055",
+    "text": "MAYÚSCULAS CON ACENTO: ÁÉÍÓÚÑÜ ¿POR QUÉ GRITAS?"
+  },
+  {
+    "id": "c056",
+    "text": "ﬀ ﬁ ligaduras y ① ② numeros encerrados y ½ fracciones"
+  },
+  {
+    "id": "c057",
+    "text": "Ⅻ numeral romano, ㎡ metro cuadrado, ℅ care of"
+  },
+  {
+    "id": "c058",
+    "text": "Importe: 348,00 € (espacio no separable)"
+  },
+  {
+    "id": "c059",
+    "text": "Firma con espacio fino y ​ancho cero​ dentro"
+  },
+  {
+    "id": "c060",
+    "text": "Columna1\tColumna2\tColumna3\nValor1\tValor2\tValor3"
+  },
+  {
+    "id": "c061",
+    "text": "﻿Asunto con BOM al principio"
+  },
+  {
+    "id": "c062",
+    "text": "Multiples     espacios      seguidos   y\n\n\nsaltos\n\n\nrepetidos"
+  },
+  {
+    "id": "c063",
+    "text": "FacturaciÃ³n pendiente, aÃ±ade a BegoÃ±a en copia"
+  },
+  {
+    "id": "c064",
+    "text": "Â¿QuÃ© tal? El dÃ­a 3 vence el plazo"
+  },
+  {
+    "id": "c065",
+    "text": "Reunión\u001b(B rota con secuencia de escape"
+  },
+  {
+    "id": "c066",
+    "text": "Ultima oportunidad: -40% solo hoy 🔥🔥 ¡corre!"
+  },
+  {
+    "id": "c067",
+    "text": "Enhorabuena 👨‍👩‍👧‍👦 por el nacimiento 🎉 — del equipo 👋🏽"
+  },
+  {
+    "id": "c068",
+    "text": "Reunión ✅ confirmada, documento 📎 adjunto, ⚠️ revisa el plazo"
+  },
+  {
+    "id": "c069",
+    "text": "🇪🇸 Equipo España vs 🇯🇵 equipo Japón"
+  },
+  {
+    "id": "c070",
+    "text": "Confirma en https://nordia-cloud.com/area-cliente/facturas?id=F-2291&utm_source=email&utm_campaign=aviso"
+  },
+  {
+    "id": "c071",
+    "text": "Clona con git@github.com:kevin/localmail-ai.git y revisa src/lib/mock.ts:142"
+  },
+  {
+    "id": "c072",
+    "text": "Ruta del log: C:\\Users\\KEVIN CHAVARRIA\\AppData\\Local\\LocalMailAI\\localmail.db"
+  },
+  {
+    "id": "c073",
+    "text": "Message-ID: <CAF8vZ1k_9mQ2pR3nT4@mail.gmail.com> In-Reply-To: <a1b2c3d4@estudiolegal.es>"
+  },
+  {
+    "id": "c074",
+    "text": "Cabecera: List-Unsubscribe: <mailto:unsub@zentrix.io>, <https://zentrix.io/u/9f2a1b>"
+  },
+  {
+    "id": "c075",
+    "text": "IBAN ES91 2100 0418 4502 0005 1332 — BIC CAIXESBBXXX — ref. F-2291/2026"
+  },
+  {
+    "id": "c076",
+    "text": "Importes: 348,00 € / $1,299.99 / £45.50 / ¥12.000 / 1.234.567,89"
+  },
+  {
+    "id": "c077",
+    "text": "Fechas: 10/11/2026, 2026-11-10, 10-nov-2026, jueves 10 de noviembre de 2026"
+  },
+  {
+    "id": "c078",
+    "text": "Telefonos: +34 611 22 33 44, 0034911234567, 611-22-33-44"
+  },
+  {
+    "id": "c079",
+    "text": "SAG-1182, PR #14, ticket 00123456, v0.1.0, commit 3f2376a"
+  },
+  {
+    "id": "c080",
+    "text": "Please find attached the Q3 consumption data. Let me know if anything is unclear."
+  },
+  {
+    "id": "c081",
+    "text": "Bonjour, je vous confirme la réunion de jeudi à 10h. Cordialement."
+  },
+  {
+    "id": "c082",
+    "text": "Guten Tag, die Rechnung F-2291 über 348,00 EUR ist am 10.11.2026 fällig."
+  },
+  {
+    "id": "c083",
+    "text": "Olá, segue em anexo a ata da reunião do comité de 28 de outubro."
+  },
+  {
+    "id": "c084",
+    "text": "Buongiorno, confermo la riunione di giovedì alle 10. Saluti."
+  },
+  {
+    "id": "c085",
+    "text": "请查收第三季度的消耗数据，周五之前需要确认。谢谢。"
+  },
+  {
+    "id": "c086",
+    "text": "第3四半期の消費データを添付します。金曜日までにご確認ください。"
+  },
+  {
+    "id": "c087",
+    "text": "Здравствуйте! Подтверждаю встречу в четверг в 10:00. С уважением."
+  },
+  {
+    "id": "c088",
+    "text": "مرحبا، أرفق لك بيانات الربع الثالث. يرجى التأكيد قبل الجمعة."
+  },
+  {
+    "id": "c089",
+    "text": "Καλημέρα, επιβεβαιώνω τη συνάντηση της Πέμπτης στις 10."
+  },
+  {
+    "id": "c090",
+    "text": "query: correos de Ana sobre la reunión del jueves"
+  },
+  {
+    "id": "c091",
+    "text": "query: factura F-2291 vencimiento"
+  },
+  {
+    "id": "c092",
+    "text": "passage: Te viene bien a las 10 en lugar de las 9? Me ha surgido una vista a primera hora."
+  },
+  {
+    "id": "c093",
+    "text": "passage: Le recordamos que la factura F-2291 por importe de 348,00 € vence el 10/11/2026."
+  },
+  {
+    "id": "c094",
+    "text": ""
+  },
+  {
+    "id": "c095",
+    "text": " "
+  },
+  {
+    "id": "c096",
+    "text": "\n"
+  },
+  {
+    "id": "c097",
+    "text": "a"
+  },
+  {
+    "id": "c098",
+    "text": "¿"
+  },
+  {
+    "id": "c099",
+    "text": "€"
+  }
+]
