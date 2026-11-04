@@ -1,8 +1,11 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+#
+# Monorepo: frontend/ (Next.js) y backend/ (.NET) conviven aqui. Las reglas van sin
+# anclar a la raiz para que valgan en los dos y en video/film/, que tambien es npm.
 
-# dependencies
-/node_modules
-/.pnp
+# dependencias
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -10,15 +13,15 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
 # next.js
-/.next/
-/out/
+.next/
+out/
 
-# production
-/build
+# produccion
+build/
+
+# testing
+coverage/
 
 # misc
 .DS_Store
@@ -30,7 +33,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# variables de entorno. frontend/.env.local lleva NEXT_PUBLIC_API_URL
 .env*
 
 # vercel
@@ -40,16 +43,16 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# .NET build output (backend/) — ademas evita que Tailwind escanee DLLs bloqueadas
+# salida de compilacion .NET (backend/). Ademas evita que Tailwind escanee DLLs bloqueadas
 [Bb]in/
 [Oo]bj/
 *.user
 
-# El backend vive en su propio repositorio:
-#   https://github.com/wuzupKev/localmail-backend
-# Sin esta linea, git lo registraria como un enlace de submodulo sin configurar, y
-# quien clonase este repositorio se encontraria una carpeta backend/ vacia.
-backend/
+# base de datos local del backend, si alguien la crea dentro del repo en vez de
+# en %LOCALAPPDATA%/LocalMailAI/
+*.db
+*.db-shm
+*.db-wal
 
 # Artefactos y caches de HyperFrames. Regenerables desde compositions/ y scripts/:
 # 36 MB de snapshots, contact sheets, formas de onda y renders que no son fuente.
