@@ -59,3 +59,6 @@ next-env.d.ts
 video/
 docs/
 capture/
+
+# the source render: the README shows demo.gif, this stays local
+demo.mp4

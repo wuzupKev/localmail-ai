@@ -16,7 +16,6 @@ result back as ordinary IMAP labels you can see in Gmail, Apple Mail or on your 
 
 Thirty-five seconds, start to finish: a buried inbox, the four buckets, the reasons
 behind each decision, and a correction teaching the classifier.
-[Full quality with sound](demo.mp4).
 
 ---
 
