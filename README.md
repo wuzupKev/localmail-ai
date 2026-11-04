@@ -154,7 +154,6 @@ localmail-ai/
 ├── docs/
 │   └── INSTALL.md  step-by-step installation, per-provider app passwords
 ├── video/          HyperFrames launch film — script, compositions, assets
-├── capture/        screenshots
 └── BACKEND.md      the backend specification, and the contract between the two
 ```
 
