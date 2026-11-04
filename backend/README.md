@@ -2,7 +2,9 @@
 
 # LocalMail AI backend
 
-Local email triage service: .NET 10, SQLite, ONNX Runtime.
+Local email triage service: .NET 10, SQLite, ONNX Runtime. Implements
+[`BACKEND.md`](../BACKEND.md) at the repository root, which the source cites by
+section throughout.
 
 Listens on `127.0.0.1:5174` only. The frontend lives in `frontend/`; this service
 does not need it and can be driven entirely with `curl`.

@@ -55,7 +55,8 @@ Three behaviours matter as much as the buckets:
 ```
 localmail-ai/
 ├── backend/     .NET 10 service — IMAP, classification, API, SQLite
-└── frontend/    Next.js 16 + React 19 interface
+├── frontend/    Next.js 16 + React 19 interface
+└── BACKEND.md   the specification — the backend source cites it by section
 ```
 
 **`backend/`** — the whole service, usable on its own over `curl`:

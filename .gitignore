@@ -55,8 +55,7 @@ next-env.d.ts
 *.db-wal
 
 # Material de trabajo que no forma parte del producto publicado. Vive en local:
-# la pelicula de lanzamiento, la especificacion interna y las capturas.
+# la pelicula de lanzamiento, la guia de instalacion larga y las capturas.
 video/
 docs/
 capture/
-BACKEND.md
