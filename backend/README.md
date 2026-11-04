@@ -1,15 +1,15 @@
-<img src="docs/logo-lockup-dark.png" alt="LocalMail AI" width="320">
+<img src="../frontend/public/brand/logo-lockup-dark.png" alt="LocalMail AI" width="320">
 
 # LocalMail AI backend
 
 Local email triage service: .NET 10, SQLite, ONNX Runtime. Implements
-[`BACKEND.md`](BACKEND.md).
+[`BACKEND.md`](../BACKEND.md) at the repository root.
 
-Listens on `127.0.0.1:5174` only. The frontend lives in the main repository; this
-service does not need it and can be driven entirely with `curl`.
+Listens on `127.0.0.1:5174` only. The frontend lives in `frontend/`; this service
+does not need it and can be driven entirely with `curl`.
 
-The data contract is fixed by `src/lib/mock.ts` in the frontend: this backend returns
-those exact shapes.
+The data contract is fixed by `frontend/src/lib/mock.ts`: this backend returns those
+exact shapes.
 
 ## What it solves
 
