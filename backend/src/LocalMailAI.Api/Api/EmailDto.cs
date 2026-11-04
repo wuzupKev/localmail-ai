@@ -78,3 +78,9 @@ public static class RelativeTime
     private static string Capitalise(string s) =>
         s.Length == 0 ? s : char.ToUpper(s[0], Culture) + s[1..];
 }
+
+/// <summary>
+/// One hit from <c>GET /api/search</c>. <c>Source</c> says which half of the hybrid
+/// found it, so the interface can tell an exact match from a semantic one.
+/// </summary>
+public sealed record SearchResultDto(EmailDto Email, double Score, string Source);

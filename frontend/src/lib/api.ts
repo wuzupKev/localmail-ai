@@ -94,4 +94,36 @@ export const api = {
     request<{ email: Email | null; examples: number }>("/api/corrections/undo", { method: "POST" }),
 
   modelStatus: () => request<ModelStatus>("/api/model/status"),
+
+  /**
+   * Hybrid search. Today only the BM25 half answers -- `source` is always "bm25" --
+   * because the vector half needs the embedding model. The field is in the response
+   * so wiring the other half later changes nothing here.
+   */
+  search: (q: string, limit = 20) =>
+    request<{ items: { email: Email; score: number; source: "bm25" | "vector" | "both" }[] }>(
+      `/api/search?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
+
+  /** Starts a pass and returns immediately: a mailbox takes minutes. Poll syncStatus. */
+  startSync: () => request<{ state: string }>("/api/sync", { method: "POST" }),
+
+  syncStatus: () =>
+    request<{ state: "idle" | "syncing"; fetched: number; total: number; lastSync: string | null; error: string | null }>(
+      "/api/sync/status"
+    ),
+
+  /** Messages whose current bucket differs from the last one written to IMAP. */
+  pendingLabels: () => request<{ count: number; emailIds: string[] }>("/api/labels/pending"),
+
+  /**
+   * The only call that writes to the mail server. Per-message results, because an
+   * IMAP batch routinely fails halfway and the user has to know what landed.
+   */
+  applyLabels: () =>
+    request<{
+      applied: number;
+      failed: number;
+      results: { emailId: string; ok: boolean; folder: string | null; error: string | null }[];
+    }>("/api/labels/apply", { method: "POST" }),
 };

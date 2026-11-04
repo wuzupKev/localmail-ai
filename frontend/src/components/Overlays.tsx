@@ -2,38 +2,87 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Email } from "@/lib/mock";
+import { api, ApiError } from "@/lib/api";
 import { useModelStatus } from "@/lib/model-status";
 import { Avatar, Kbd } from "./bits";
 
-/** Simulated hybrid search: exact match (BM25) + "semantic" matching over words. */
+/**
+ * Search, served by GET /api/search over the whole mailbox -- not just the drawer on
+ * screen, which is the point of having a search at all.
+ *
+ * Offline it falls back to matching the messages already loaded, so the box still does
+ * something when the service is down instead of looking broken.
+ *
+ * Queries are debounced: a keystroke is not a search, and FTS5 is fast enough that the
+ * delay is the only thing standing between typing and a request per character.
+ */
 export function SearchOverlay({
   emails,
+  offline = false,
   onClose,
   onSelect,
 }: {
   emails: Email[];
+  offline?: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
+  const [hits, setHits] = useState<{ e: Email; source: string }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => ref.current?.focus(), []);
 
-  const resultados = useMemo(() => {
-    if (!q.trim()) return [];
-    const t = q.toLowerCase();
+  const local = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return [];
     return emails
-      .map((e) => {
-        const text = `${e.subject} ${e.from.name} ${e.from.email} ${e.preview} ${e.body.join(" ")}`.toLowerCase();
-        const exacta = text.includes(t);
-        const sem = t.split(/\s+/).filter((w) => w.length > 3 && text.includes(w)).length;
-        return { e, score: (exacta ? 2 : 0) + sem, exacta };
-      })
-      .filter((r) => r.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8);
+      .filter((e) =>
+        `${e.subject} ${e.from.name} ${e.from.email} ${e.preview} ${e.body.join(" ")}`
+          .toLowerCase()
+          .includes(t)
+      )
+      .slice(0, 8)
+      .map((e) => ({ e, source: "local" }));
   }, [q, emails]);
+
+  useEffect(() => {
+    if (offline) {
+      setHits(local);
+      return;
+    }
+    if (!q.trim()) {
+      setHits([]);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const { items } = await api.search(q, 8);
+        if (cancelled) return;
+        setHits(items.map((i) => ({ e: i.email, source: i.source })));
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof ApiError ? err.message : "search failed");
+        setHits([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [q, offline, local]);
+
+  const resultados = hits;
 
   return (
     <div
@@ -65,18 +114,30 @@ export function SearchOverlay({
         <div className="max-h-[60dvh] overflow-y-auto">
           {!q && (
             <p className="px-5 py-6 text-[12px] leading-relaxed" style={{ color: "var(--ink-3)" }}>
-              BM25 over the exact text combined with semantic similarity from embeddings. No query leaves
-              this machine.
+              BM25 over the full text of every message. Semantic similarity joins it once the
+              embedding model is installed. No query leaves this machine.
             </p>
           )}
 
-          {q && resultados.length === 0 && (
+          {q && searching && resultados.length === 0 && !error && (
+            <p className="px-5 py-8 text-center text-[13px]" style={{ color: "var(--ink-3)" }}>
+              Searching…
+            </p>
+          )}
+
+          {error && (
+            <p className="px-5 py-8 text-center text-[13px]" style={{ color: "var(--t-reply-ink)" }}>
+              {error}
+            </p>
+          )}
+
+          {q && !searching && !error && resultados.length === 0 && (
             <p className="px-5 py-8 text-center text-[13px]" style={{ color: "var(--ink-3)" }}>
               No results.
             </p>
           )}
 
-          {resultados.map(({ e, exacta }) => (
+          {resultados.map(({ e, source }) => (
             <button
               key={e.id}
               onClick={() => {
@@ -97,7 +158,7 @@ export function SearchOverlay({
                 className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold"
                 style={{ background: "var(--surface)", color: "var(--ink-3)" }}
               >
-                {exacta ? "BM25" : "vector"}
+                {source}
               </span>
             </button>
           ))}

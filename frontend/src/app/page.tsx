@@ -69,6 +69,9 @@ export default function Page() {
   const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null);
   const [examples, setExamples] = useState(MODEL_STATUS.examples);
   const [pending, setPending] = useState(0);
+  const [sync, setSync] = useState<{ state: "idle" | "syncing"; fetched: number; total: number; lastSync: string | null }>(
+    { state: "idle", fetched: 0, total: 0, lastSync: null }
+  );
 
   // Guards against a slow drawer response landing after the user moved on.
   const requestId = useRef(0);
@@ -77,10 +80,13 @@ export default function Page() {
 
   /** Counts and model status: the two things that describe the whole inbox. */
   const refreshSummary = useCallback(async () => {
-    const [c, m] = await Promise.all([api.counts(), api.modelStatus()]);
+    const [c, m, p] = await Promise.all([api.counts(), api.modelStatus(), api.pendingLabels()]);
     setCounts(c);
     setModelStatus(m);
     setExamples(m.examples);
+    // Pending is the server's answer, not a local tally: a correction that returns a
+    // message to the bucket already written to IMAP leaves nothing pending.
+    setPending(p.count);
   }, []);
 
   /** First contact. Deciding live-versus-offline once keeps every later call simple. */
@@ -153,7 +159,6 @@ export default function Page() {
       try {
         const { examples: total } = await api.reclassify(id, bucket);
         setExamples(total);
-        setPending((n) => n + 1);
         setToast({ text: `Moved to ${short} · ${total} examples`, undo: true });
         // It has usually left the drawer, so both the list and the tiles are stale.
         const [page] = await Promise.all([api.emails(drawer), refreshSummary()]);
@@ -179,7 +184,6 @@ export default function Page() {
         return;
       }
       setExamples(total);
-      setPending((n) => Math.max(0, n - 1));
       const [page] = await Promise.all([api.emails(drawer), refreshSummary()]);
       setEmails(page.items);
       setToast({ text: "Change undone", undo: false });
@@ -230,6 +234,57 @@ export default function Page() {
     },
     [offline]
   );
+
+  /**
+   * Starts a pass and polls until it ends. The request returns at once because a
+   * mailbox takes minutes, so progress lives in GET /api/sync/status.
+   */
+  const startSync = useCallback(async () => {
+    if (offline || sync.state === "syncing") return;
+    try {
+      await api.startSync();
+      setSync((v) => ({ ...v, state: "syncing" }));
+
+      const poll = setInterval(async () => {
+        try {
+          const st = await api.syncStatus();
+          setSync({ state: st.state, fetched: st.fetched, total: st.total, lastSync: st.lastSync });
+          if (st.state === "idle") {
+            clearInterval(poll);
+            if (st.error) {
+              setToast({ text: st.error, undo: false });
+            } else {
+              setToast({ text: `Synced ${st.fetched} messages`, undo: false });
+            }
+            const [page] = await Promise.all([api.emails(drawer), refreshSummary()]);
+            setEmails(page.items);
+          }
+        } catch {
+          clearInterval(poll);
+          setSync((v) => ({ ...v, state: "idle" }));
+        }
+      }, 1200);
+    } catch (e) {
+      setToast({ text: e instanceof ApiError ? e.message : "sync failed", undo: false });
+    }
+  }, [offline, sync.state, drawer, refreshSummary]);
+
+  /** The only call that writes to the mail server, and only after the dialog. */
+  const applyLabels = useCallback(async () => {
+    setModal(null);
+    try {
+      const r = await api.applyLabels();
+      setToast({
+        text: r.failed === 0
+          ? `${r.applied} labels written to IMAP`
+          : `${r.applied} written, ${r.failed} failed`,
+        undo: false,
+      });
+      await refreshSummary();
+    } catch (e) {
+      setToast({ text: e instanceof ApiError ? e.message : "the write failed", undo: false });
+    }
+  }, [refreshSummary]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -325,6 +380,25 @@ export default function Page() {
                   {connection === "live" ? "Connected" : connection === "offline" ? "Sample data" : "Connecting…"}
                 </span>
 
+                {!offline && (
+                  <button
+                    onClick={startSync}
+                    disabled={sync.state === "syncing"}
+                    className="btn btn-raised hidden items-center gap-2 rounded-full border px-3.5 py-2 text-[12px] hover:bg-[var(--surface)] lg:flex disabled:opacity-60"
+                    style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-2)" }}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${sync.state === "syncing" ? "animate-blink" : ""}`}
+                      style={{ background: sync.state === "syncing" ? "var(--brand)" : "var(--ok)" }}
+                    />
+                    {sync.state === "syncing"
+                      ? `Syncing ${sync.fetched}/${sync.total}…`
+                      : sync.lastSync
+                        ? "Synced"
+                        : "Sync mail"}
+                  </button>
+                )}
+
                 {pending > 0 && (
                   <button
                     onClick={() => setModal("confirm")}
@@ -396,6 +470,7 @@ export default function Page() {
         {modal === "search" && (
           <SearchOverlay
             emails={emails}
+            offline={offline}
             onClose={() => setModal(null)}
             onSelect={(id) => {
               setSelectedId(id);
@@ -410,12 +485,7 @@ export default function Page() {
           <ConfirmDialog
             n={pending}
             onCancel={() => setModal(null)}
-            onConfirm={() => {
-              // Milestone 10. /api/labels/apply does not exist yet, and claiming the
-              // write happened would be the one lie this product cannot afford.
-              setToast({ text: "IMAP write-back is not implemented yet", undo: false });
-              setModal(null);
-            }}
+            onConfirm={applyLabels}
           />
         )}
 

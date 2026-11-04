@@ -221,6 +221,45 @@ public sealed class EmailRepository(Database db)
         return row is null ? null : Map(row, now);
     }
 
+    /// <summary>
+    /// Milestone 8, the BM25 half: full-text search over <c>email_fts</c>.
+    ///
+    /// The query is rebuilt from its words rather than passed through. FTS5 has its own
+    /// syntax -- quotes, <c>*</c>, <c>NEAR</c>, <c>OR</c> -- so a subject pasted into the
+    /// box would either throw a syntax error or quietly mean something else. Each word
+    /// becomes a quoted term, and the terms are ANDed.
+    ///
+    /// Every result reports <c>source: "bm25"</c>. The vector half of §8 is not wired
+    /// yet, and the field exists so adding it does not change the contract.
+    /// </summary>
+    public async Task<SearchResultDto[]> SearchAsync(string query, int limit, DateTimeOffset now)
+    {
+        var terms = (query ?? string.Empty)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(w => w.Replace("\"", string.Empty))
+            .Where(w => w.Length > 0)
+            .Select(w => $"\"{w}\"")
+            .ToArray();
+
+        if (terms.Length == 0)
+        {
+            return [];
+        }
+
+        using var cn = db.Open();
+        var rows = await cn.QueryAsync<Row>(
+            $"""
+            {Selection}
+            JOIN email_fts f ON f.rowid = e.rowid
+            WHERE email_fts MATCH @match
+            ORDER BY bm25(email_fts)
+            LIMIT @limit
+            """,
+            new { match = string.Join(' ', terms), limit });
+
+        return rows.Select(r => new SearchResultDto(Map(r, now), 1.0, "bm25")).ToArray();
+    }
+
     private static EmailDto Map(Row r, DateTimeOffset now)
     {
         var date = DateTimeOffset.Parse(r.DateUtc, null, DateTimeStyles.RoundtripKind);

@@ -30,6 +30,8 @@ builder.Services.AddSingleton<CredentialStore>();
 builder.Services.AddSingleton<EmbeddingProvider>();
 builder.Services.AddSingleton<CorrectionsRepository>();
 builder.Services.AddSingleton<ModelStatusService>();
+builder.Services.AddSingleton<ImapSync>();
+builder.Services.AddSingleton<LabelWriter>();
 
 // In TypeScript "extracted?: {...}" is "X | undefined", not "X | null": an optional
 // property that does not exist is omitted, not serialised as null.
@@ -131,6 +133,65 @@ app.MapPatch("/api/emails/{id}", async (EmailRepository repo, string id, UnreadP
 // Frontend sidebar: examples, precision, indexed messages and whether Ollama is there.
 // The breakdown by origin lets the UI distinguish "I don't know you yet" (few
 // examples, and the ones there came from the bootstrap) from "I can't classify this".
+// --- Search (§8, BM25 half) --------------------------------------------------------
+// The vector half needs the embedding model; without it this degrades to full text
+// rather than failing, which is the same rule the rest of the service follows.
+app.MapGet("/api/search", async (EmailRepository repo, string? q, int? limit) =>
+{
+    if (string.IsNullOrWhiteSpace(q))
+    {
+        return Error(400, "missing_query", "q is required");
+    }
+
+    var items = await repo.SearchAsync(q, Math.Clamp(limit ?? 20, 1, 100), DateTimeOffset.Now);
+    return Results.Ok(new { items });
+});
+
+// --- IMAP sync (§2) ----------------------------------------------------------------
+// Fire and forget: a mailbox takes minutes, far longer than an HTTP request should be
+// held open. The caller polls /api/sync/status, which is what the header indicator in
+// the interface already does.
+app.MapPost("/api/sync", (ImapSync sync, ILogger<Program> logger) =>
+{
+    if (sync.Status().State == "syncing")
+    {
+        return Error(409, "sync_running", "a sync is already running");
+    }
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await sync.SyncAsync();
+        }
+        catch (Exception ex)
+        {
+            // Already recorded in the status the client polls; this is for the console.
+            logger.LogError(ex, "Background sync failed");
+        }
+    });
+
+    return Results.Accepted("/api/sync/status", new { state = "syncing" });
+});
+
+app.MapGet("/api/sync/status", (ImapSync sync) => Results.Ok(sync.Status()));
+
+// --- IMAP label write-back (§10) ---------------------------------------------------
+app.MapGet("/api/labels/pending", async (LabelWriter writer) => Results.Ok(await writer.PendingAsync()));
+
+// The ONLY route that writes to the mail server, and only on an explicit call. Rule 3.
+app.MapPost("/api/labels/apply", async (LabelWriter writer) =>
+{
+    try
+    {
+        return Results.Ok(await writer.ApplyAsync());
+    }
+    catch (Exception ex)
+    {
+        return Error(502, "imap_write_failed", ex.Message);
+    }
+});
+
 app.MapGet("/api/model/status", async (ModelStatusService status) => Results.Ok(await status.GetAsync()));
 
 // The core of the product: the user corrects and the system learns. The response
