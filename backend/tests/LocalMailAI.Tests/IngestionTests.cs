@@ -92,7 +92,7 @@ public sealed class IngestionTests : IDisposable
         Assert.All(email.Body, p => Assert.DoesNotContain(">", p));
 
         Assert.Equal(3, email.Body.Length);
-        // Same day: it has to produce a time, not "Ayer" or a weekday name. The exact
+        // Same day: it has to produce a time, not "Yesterday" or a weekday name. The exact
         // value is not pinned because the .eml is in UTC and the API formats in local
         // time; pinning it would fail on a machine in another timezone.
         Assert.Matches(@"^\d{1,2}:\d{2}$", email.Time);
@@ -895,23 +895,23 @@ public class RelativeTimeTests
     [Fact]
     public void Yesterday_is_spelled_out()
     {
-        var cuando = Now.AddDays(-1);
-        Assert.Equal("Ayer", RelativeTime.Format(cuando, Now));
+        var when_ = Now.AddDays(-1);
+        Assert.Equal("Yesterday", RelativeTime.Format(when_, Now));
     }
 
     [Fact]
     public void Within_the_week_the_weekday_name_is_used()
     {
         // 2026-11-03 is a Tuesday; three days earlier is a Saturday.
-        var cuando = Now.AddDays(-3);
-        Assert.Equal("Sáb", RelativeTime.Format(cuando, Now));
+        var when_ = Now.AddDays(-3);
+        Assert.Equal("Sat", RelativeTime.Format(when_, Now));
     }
 
     [Fact]
     public void Older_than_a_week_shows_day_and_abbreviated_month()
     {
-        var cuando = Now.AddDays(-22);
-        Assert.Equal("12 oct", RelativeTime.Format(cuando, Now));
+        var when_ = Now.AddDays(-22);
+        Assert.Equal("12 Oct", RelativeTime.Format(when_, Now));
     }
 
     [Fact]
@@ -923,8 +923,8 @@ public class RelativeTimeTests
         try
         {
             Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("en-US");
-            Assert.Equal("Ayer", RelativeTime.Format(Now.AddDays(-1), Now));
-            Assert.Equal("Sáb", RelativeTime.Format(Now.AddDays(-3), Now));
+            Assert.Equal("Yesterday", RelativeTime.Format(Now.AddDays(-1), Now));
+            Assert.Equal("Sat", RelativeTime.Format(Now.AddDays(-3), Now));
         }
         finally
         {

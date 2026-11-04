@@ -206,10 +206,11 @@ static string? ResolveFolder(string folder)
     var dir = new DirectoryInfo(AppContext.BaseDirectory);
     while (dir is not null)
     {
-        // The backend root is the directory containing lab/ and models/, same rule as
-        // the parity tools use.
-        if (Directory.Exists(Path.Combine(dir.FullName, "lab")) &&
-            Directory.Exists(Path.Combine(dir.FullName, "models")))
+        // The backend root is the directory holding the solution file. It is NOT
+        // identified by models/: that directory holds the 470 MB of weights, is not in
+        // git, and is absent from a fresh clone -- which is exactly when someone runs
+        // --seed to look at the fixtures without downloading anything.
+        if (File.Exists(Path.Combine(dir.FullName, "LocalMailAI.slnx")))
         {
             var candidate = Path.Combine(dir.FullName, folder);
             return Directory.Exists(candidate) ? candidate : null;

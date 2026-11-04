@@ -48,16 +48,15 @@ public sealed record CountsDto(
     int Unread);
 
 /// <summary>
-/// The contract's <c>time</c> field: "9:14" if today, "Ayer", "Lun", or "12 oct".
+/// The contract's <c>time</c> field: "9:14" if today, "Yesterday", "Mon", or "12 Oct".
 ///
-/// The culture is pinned to es-ES on purpose. Using the system culture would make the
-/// same API return "Mon" or "Mo" depending on the machine the backend runs on, and the
-/// frontend would have no way to know what it is going to receive. The strings are
-/// Spanish because they are user-facing copy for a Spanish interface.
+/// The culture is pinned on purpose. Using the system culture would make the same API
+/// return "Mon", "Mo" or "lun" depending on the machine the backend runs on, and the
+/// frontend would have no way to know what it is going to receive.
 /// </summary>
 public static class RelativeTime
 {
-    private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-ES");
+    private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("en-GB");
 
     public static string Format(DateTimeOffset when, DateTimeOffset now)
     {
@@ -67,15 +66,15 @@ public static class RelativeTime
 
         return days switch
         {
-            <= 0 => when.LocalDateTime.ToString("H:mm", Es),
-            1 => "Ayer",
+            <= 0 => when.LocalDateTime.ToString("H:mm", Culture),
+            1 => "Yesterday",
             // Within the week, the weekday already locates the message; a date would
             // be more precise and less useful.
-            < 7 => Capitalise(Es.DateTimeFormat.GetAbbreviatedDayName(day.DayOfWeek)),
-            _ => when.LocalDateTime.ToString("d MMM", Es).Replace(".", string.Empty),
+            < 7 => Capitalise(Culture.DateTimeFormat.GetAbbreviatedDayName(day.DayOfWeek)),
+            _ => when.LocalDateTime.ToString("d MMM", Culture).Replace(".", string.Empty),
         };
     }
 
     private static string Capitalise(string s) =>
-        s.Length == 0 ? s : char.ToUpper(s[0], Es) + s[1..];
+        s.Length == 0 ? s : char.ToUpper(s[0], Culture) + s[1..];
 }
