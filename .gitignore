@@ -39,3 +39,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# .NET build output (backend/) — ademas evita que Tailwind escanee DLLs bloqueadas
+[Bb]in/
+[Oo]bj/
+*.user
+
+# El backend vive en su propio repositorio:
+#   https://github.com/wuzupKev/localmail-backend
+# Sin esta linea, git lo registraria como un enlace de submodulo sin configurar, y
+# quien clonase este repositorio se encontraria una carpeta backend/ vacia.
+backend/
+
+# Artefactos y caches de HyperFrames. Regenerables desde compositions/ y scripts/:
+# 36 MB de snapshots, contact sheets, formas de onda y renders que no son fuente.
+video/film/.hyperframes/
+video/film/.thumbnails/
+video/film/.waveform-cache/
+video/film/renders/

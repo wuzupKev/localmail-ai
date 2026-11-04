@@ -1,69 +1,297 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { BUCKETS, EMAILS, ESTADO_MODELO, esDuda, type Bucket, type Email } from "@/lib/mock";
+import { Sidebar, type Vista } from "@/components/Sidebar";
+import { BucketTiles } from "@/components/BucketTiles";
+import { EmailList } from "@/components/EmailList";
+import { DetailPanel, DetailSheet } from "@/components/DetailPanel";
+import { ConfirmDialog, HelpOverlay, SearchOverlay, SettingsPanel, Toast } from "@/components/Overlays";
+import { IconButton } from "@/components/bits";
+
+type Undo = { email: Email; examples: number };
+
+/**
+ * Next 16 no deja leer el reloj durante el prerender, así que la fecha es un valor
+ * exclusivo de cliente: vacía en el servidor, resuelta y cacheada en el navegador.
+ */
+let fechaCache: string | null = null;
+const sinSuscripcion = () => () => {};
+const fechaCliente = () => {
+  fechaCache ??= new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return fechaCache;
+};
+const useFechaHoy = () => useSyncExternalStore(sinSuscripcion, fechaCliente, () => "");
+
+const LUPA = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <circle cx="7.2" cy="7.2" r="4.6" stroke="currentColor" strokeWidth="1.5" />
+    <path d="m10.7 10.7 2.8 2.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
+export default function Page() {
+  const [emails, setEmails] = useState<Email[]>(EMAILS);
+  const [vista, setVista] = useState<Vista>("responder");
+  const [selectedId, setSelectedId] = useState<string | null>("e1");
+  const [modal, setModal] = useState<null | "buscar" | "ajustes" | "ayuda" | "confirmar">(null);
+  const [navAbierta, setNavAbierta] = useState(false);
+  const [hojaAbierta, setHojaAbierta] = useState(false);
+  const [toast, setToast] = useState<{ texto: string; undo: boolean } | null>(null);
+  const [examples, setExamples] = useState(ESTADO_MODELO.examples);
+  const [pendientes, setPendientes] = useState(0);
+  const [sync, setSync] = useState<{ estado: "idle" | "syncing"; desde: number }>({ estado: "idle", desde: 2 });
+
+  const undoRef = useRef<Undo | null>(null);
+
+  // La particion en cinco cajones la decide el servidor: aqui se simula con el mismo criterio.
+  const dudosos = useMemo(() => emails.filter(esDuda), [emails]);
+  const visibles = useMemo(
+    () => (vista === "duda" ? dudosos : emails.filter((e) => e.bucket === vista && !esDuda(e))),
+    [emails, vista, dudosos]
+  );
+  const seleccionado = emails.find((e) => e.id === selectedId) ?? null;
+
+  /**
+   * En el backend real una corrección se guarda como evento
+   * (email_id, bucket_anterior, bucket_nuevo, origen, timestamp), never sobrescribiendo la label.
+   */
+  const reclassify = useCallback(
+    (id: string, bucket: Bucket) => {
+      const anterior = emails.find((e) => e.id === id);
+      if (!anterior || anterior.bucket === bucket) return;
+
+      undoRef.current = { email: anterior, examples };
+      setEmails((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? { ...e, bucket, confidence: 1, signals: [{ label: "Corrected by you", sign: "pos" as const }, ...e.signals] }
+            : e
+        )
+      );
+      setExamples((n) => n + 1);
+      setPendientes((n) => n + 1);
+      setToast({ texto: `Moved to ${BUCKETS.find((b) => b.id === bucket)!.short} · ${examples + 1} examples`, undo: true });
+    },
+    [emails, examples]
+  );
+
+  // Heurística 3: control y libertad del usuario. Toda reclasificación es reversible.
+  const deshacer = useCallback(() => {
+    const u = undoRef.current;
+    if (!u) return;
+    setEmails((prev) => prev.map((e) => (e.id === u.email.id ? u.email : e)));
+    setExamples(u.examples);
+    setPendientes((n) => Math.max(0, n - 1));
+    undoRef.current = null;
+    setToast({ texto: "Change undone", undo: false });
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), toast.undo ? 5000 : 2200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const cambiarVista = useCallback(
+    (v: Vista) => {
+      setVista(v);
+      const lista = v === "duda" ? dudosos : emails.filter((e) => e.bucket === v && !esDuda(e));
+      setSelectedId(lista[0]?.id ?? null);
+    },
+    [emails, dudosos]
+  );
+
+  // Heurística 1: el estado del sistema siempre visible, también mientras trabaja.
+  const sincronizar = useCallback(() => {
+    setSync({ estado: "syncing", desde: 0 });
+    setTimeout(() => setSync({ estado: "idle", desde: 0 }), 1800);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setModal(null);
+        setNavAbierta(false);
+        setHojaAbierta(false);
+        return;
+      }
+      if (modal) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        return deshacer();
+      }
+      if (e.key === "?") {
+        e.preventDefault();
+        return setModal("ayuda");
+      }
+      if (e.key === "/") {
+        e.preventDefault();
+        return setModal("buscar");
+      }
+      if (e.key === "j" || e.key === "k") {
+        const i = visibles.findIndex((x) => x.id === selectedId);
+        const n = e.key === "j" ? Math.min(i + 1, visibles.length - 1) : Math.max(i - 1, 0);
+        if (visibles[n]) setSelectedId(visibles[n].id);
+        return;
+      }
+      const b = BUCKETS.find((x) => x.key === e.key);
+      if (b && selectedId) reclassify(selectedId, b.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modal, visibles, selectedId, reclassify, deshacer]);
+
+  const hoy = useFechaHoy();
+  const nuevos = emails.filter((e) => e.unread).length;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    // h-dvh, no h-screen: en móvil la barra del navegador se come los 100vh.
+    <div className="h-dvh overflow-hidden sm:p-3 lg:p-5">
+      <div
+        className="mx-auto flex h-full w-full max-w-[1680px] overflow-hidden sm:rounded-[26px] sm:shadow-shell"
+        style={{ background: "var(--shell)" }}
+      >
+        <Sidebar
+          dudosos={dudosos.length}
+          abierta={navAbierta}
+          onClose={() => setNavAbierta(false)}
+          onSearch={() => setModal("buscar")}
+          onSettings={() => setModal("ajustes")}
+          onHelp={() => setModal("ayuda")}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+
+        <div className="flex min-w-0 flex-1 flex-col" style={{ background: "var(--surface)" }}>
+          <header className="flex h-[68px] shrink-0 items-center gap-2 px-4 sm:gap-4 sm:px-6 lg:h-[76px]">
+            <button
+              onClick={() => setNavAbierta(true)}
+              aria-label="Open navigation"
+              className="btn btn-raised grid h-9 w-9 shrink-0 place-items-center rounded-full border lg:hidden"
+              style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-2)" }}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+
+            <div className="min-w-0">
+              <h1 className="truncate text-[17px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[21px]">
+                Today's inbox
+              </h1>
+              <p className="truncate text-[11.5px] sm:text-[12px]" style={{ color: "var(--ink-3)" }}>
+                {hoy ? `${hoy} · ` : ""}
+                {nuevos} unread
+              </p>
+            </div>
+
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <button
+                onClick={sincronizar}
+                disabled={sync.estado === "syncing"}
+                className="btn btn-raised hidden items-center gap-2 rounded-full border px-3.5 py-2 text-[12px] hover:bg-[var(--surface)] lg:flex"
+                style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-2)" }}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${sync.estado === "syncing" ? "animate-blink" : ""}`}
+                  style={{ background: sync.estado === "syncing" ? "var(--brand)" : "var(--ok)" }}
+                />
+                {sync.estado === "syncing"
+                  ? "Syncing…"
+                  : sync.desde === 0
+                    ? "Synced just now"
+                    : `Synced ${sync.desde} min`}
+              </button>
+
+              {pendientes > 0 && (
+                <button
+                  onClick={() => setModal("confirmar")}
+                  className="btn btn-dark rounded-full px-3 py-2 text-[12px] font-semibold sm:px-4"
+                  style={{ background: "var(--dark)", color: "#fff" }}
+                >
+                  <span className="hidden sm:inline">Apply </span>
+                  {pendientes}
+                  <span className="hidden sm:inline"> {pendientes === 1 ? "label" : "labels"}</span>
+                  <span className="sm:hidden"> lbl</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setModal("buscar")}
+                className="btn btn-raised hidden items-center gap-2 rounded-full border px-4 py-2.5 text-[12.5px] hover:bg-[var(--surface)] xl:flex"
+                style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink-3)" }}
+              >
+                {LUPA}
+                Search email
+                <span className="ml-6 font-mono text-[11px]">/</span>
+              </button>
+
+              <span className="xl:hidden">
+                <IconButton label="Search email" onClick={() => setModal("buscar")}>
+                  {LUPA}
+                </IconButton>
+              </span>
+
+              <span className="hidden sm:inline">
+                <IconButton label="Keyboard shortcuts" onClick={() => setModal("ayuda")}>
+                  <span className="text-[13px] font-bold">?</span>
+                </IconButton>
+              </span>
+            </div>
+          </header>
+
+          <BucketTiles emails={emails} dudosos={dudosos.length} vista={vista} onVista={cambiarVista} />
+
+          <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
+            <EmailList
+              emails={visibles}
+              vista={vista}
+              selectedId={selectedId}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setHojaAbierta(true);
+              }}
+              onReclasificar={reclassify}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <DetailPanel email={seleccionado} onReclasificar={reclassify} />
+          </div>
         </div>
-      </main>
+      </div>
+
+      {/* Por debajo de xl el detalle se abre como hoja; por encima ya está el panel lateral. */}
+      {hojaAbierta && seleccionado && (
+        <DetailSheet email={seleccionado} onClose={() => setHojaAbierta(false)} onReclasificar={reclassify} />
+      )}
+
+      {modal === "buscar" && (
+        <SearchOverlay
+          emails={emails}
+          onClose={() => setModal(null)}
+          onSelect={(id) => {
+            const e = emails.find((x) => x.id === id);
+            if (e) {
+              setVista(esDuda(e) ? "duda" : e.bucket);
+              setSelectedId(id);
+            }
+          }}
+        />
+      )}
+
+      {modal === "ajustes" && <SettingsPanel examples={examples} onClose={() => setModal(null)} />}
+      {modal === "ayuda" && <HelpOverlay onClose={() => setModal(null)} />}
+      {modal === "confirmar" && (
+        <ConfirmDialog
+          n={pendientes}
+          onCancel={() => setModal(null)}
+          onConfirm={() => {
+            setToast({ texto: `${pendientes} labels written to IMAP`, undo: false });
+            setPendientes(0);
+            setModal(null);
+          }}
+        />
+      )}
+
+      {toast && <Toast texto={toast.texto} onUndo={toast.undo ? deshacer : undefined} />}
     </div>
   );
 }
