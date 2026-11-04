@@ -3,15 +3,15 @@ using MimeKit;
 namespace LocalMailAI.Api.Mail;
 
 /// <summary>
-/// Lo que se puede saber de un correo leyendo solo sus cabeceras, sin IA y en
-/// microsegundos. Alimenta las senales deterministas de BACKEND.md §6 y las columnas
-/// de <c>emails</c> de §4.
+/// Everything that can be known about a message by reading its headers alone, with no
+/// AI and in microseconds. Feeds the deterministic signals of BACKEND.md §6 and the
+/// columns of the <c>emails</c> table in §4.
 /// </summary>
 public sealed record MessageFacts
 {
     public required string MessageId { get; init; }
 
-    /// <summary>Raiz del hilo: el primer References, o In-Reply-To, o el propio Message-ID.</summary>
+    /// <summary>Thread root: the first References entry, or In-Reply-To, or its own Message-ID.</summary>
     public required string ThreadId { get; init; }
 
     public string? FromName { get; init; }
@@ -22,19 +22,19 @@ public sealed record MessageFacts
     public required DateTimeOffset DateUtc { get; init; }
     public string? InReplyTo { get; init; }
 
-    /// <summary>Cadena de References, de la mas antigua a la mas reciente.</summary>
+    /// <summary>The References chain, oldest first.</summary>
     public required string[] References { get; init; }
 
     public bool HasListUnsubscribe { get; init; }
 
-    /// <summary>Auto-Submitted distinto de "no", o Precedence: bulk/list/junk.</summary>
+    /// <summary>Auto-Submitted other than "no", or Precedence: bulk/list/junk.</summary>
     public bool IsAutoSubmitted { get; init; }
 
-    /// <summary>De Authentication-Results. Null = la cabecera no dice nada.</summary>
+    /// <summary>From Authentication-Results. Null means the header says nothing.</summary>
     public bool? SpfPass { get; init; }
     public bool? DkimPass { get; init; }
 
-    /// <summary>Direccion del tipo no-reply / noreply / do-not-reply.</summary>
+    /// <summary>A no-reply / noreply / do-not-reply style address.</summary>
     public bool IsNoReplyAddress { get; init; }
 
     public int RecipientCount => To.Length + Cc.Length;
@@ -43,24 +43,24 @@ public sealed record MessageFacts
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        var remitente = message.From.Mailboxes.FirstOrDefault()
+        var sender = message.From.Mailboxes.FirstOrDefault()
             ?? message.Sender
             ?? message.ReplyTo.Mailboxes.FirstOrDefault();
 
-        var fromEmail = (remitente?.Address ?? string.Empty).Trim().ToLowerInvariant();
+        var fromEmail = (sender?.Address ?? string.Empty).Trim().ToLowerInvariant();
 
-        // Hay correo sin Message-ID. Inventarse uno estable a partir de lo que si
-        // hay es mejor que descartar el mensaje o generar un GUID distinto en cada
-        // sync, que duplicaria la fila en cada pasada.
+        // Some mail has no Message-ID. Deriving a stable one from what is there beats
+        // dropping the message or generating a fresh GUID on every sync, which would
+        // duplicate the row on each pass.
         var messageId = string.IsNullOrWhiteSpace(message.MessageId)
-            ? SinMessageId(fromEmail, message.Subject, message.Date)
+            ? SyntheticMessageId(fromEmail, message.Subject, message.Date)
             : message.MessageId.Trim();
 
         var references = message.References?.ToArray() ?? [];
         var inReplyTo = string.IsNullOrWhiteSpace(message.InReplyTo) ? null : message.InReplyTo.Trim();
 
-        // La raiz del hilo es el References mas antiguo. Si no hay References pero si
-        // In-Reply-To, ese es lo mas cercano a la raiz que conocemos.
+        // The thread root is the oldest References entry. With no References but an
+        // In-Reply-To, that is the closest thing to a root we know about.
         var threadId = references.Length > 0
             ? references[0]
             : inReplyTo ?? messageId;
@@ -69,36 +69,36 @@ public sealed record MessageFacts
         {
             MessageId = messageId,
             ThreadId = threadId,
-            FromName = string.IsNullOrWhiteSpace(remitente?.Name) ? null : remitente.Name.Trim(),
+            FromName = string.IsNullOrWhiteSpace(sender?.Name) ? null : sender.Name.Trim(),
             FromEmail = fromEmail,
-            To = Direcciones(message.To),
-            Cc = Direcciones(message.Cc),
+            To = Addresses(message.To),
+            Cc = Addresses(message.Cc),
             Subject = string.IsNullOrWhiteSpace(message.Subject) ? null : message.Subject.Trim(),
             DateUtc = message.Date.ToUniversalTime(),
             InReplyTo = inReplyTo,
             References = references,
             HasListUnsubscribe = message.Headers.Contains(HeaderId.ListUnsubscribe),
-            IsAutoSubmitted = EsAutomatico(message),
-            SpfPass = ResultadoAutenticacion(message, "spf"),
-            DkimPass = ResultadoAutenticacion(message, "dkim"),
-            IsNoReplyAddress = EsNoReply(fromEmail),
+            IsAutoSubmitted = IsAutomated(message),
+            SpfPass = AuthenticationResult(message, "spf"),
+            DkimPass = AuthenticationResult(message, "dkim"),
+            IsNoReplyAddress = IsNoReply(fromEmail),
         };
     }
 
-    private static string[] Direcciones(InternetAddressList lista) =>
-        [.. lista.Mailboxes
+    private static string[] Addresses(InternetAddressList list) =>
+        [.. list.Mailboxes
             .Select(m => (m.Address ?? string.Empty).Trim().ToLowerInvariant())
             .Where(a => a.Length > 0)];
 
-    private static string SinMessageId(string fromEmail, string? subject, DateTimeOffset fecha)
+    private static string SyntheticMessageId(string fromEmail, string? subject, DateTimeOffset date)
     {
-        var semilla = $"{fromEmail}|{subject}|{fecha.UtcDateTime:O}";
+        var seed = $"{fromEmail}|{subject}|{date.UtcDateTime:O}";
         var hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(semilla));
+            System.Text.Encoding.UTF8.GetBytes(seed));
         return $"sin-message-id-{Convert.ToHexStringLower(hash)[..32]}@localmail.local";
     }
 
-    private static bool EsAutomatico(MimeMessage message)
+    private static bool IsAutomated(MimeMessage message)
     {
         var autoSubmitted = message.Headers["Auto-Submitted"];
         if (!string.IsNullOrWhiteSpace(autoSubmitted) &&
@@ -116,50 +116,50 @@ public sealed record MessageFacts
             return true;
         }
 
-        // Cabeceras que solo pone un sistema de envio masivo.
+        // Headers only a bulk sending system sets.
         return message.Headers.Contains("X-Auto-Response-Suppress")
             || message.Headers.Contains("X-Autoreply")
             || message.Headers.Contains("List-Id");
     }
 
     /// <summary>
-    /// Lee Authentication-Results buscando "spf=pass" o "dkim=pass".
-    /// Null cuando la cabecera no existe o no menciona ese mecanismo: no es lo mismo
-    /// "ha fallado la verificacion" que "nadie la ha hecho".
+    /// Reads Authentication-Results looking for "spf=pass" or "dkim=pass".
+    /// Null when the header is absent or does not mention that mechanism: "the check
+    /// failed" and "nobody ran the check" are not the same thing.
     /// </summary>
-    private static bool? ResultadoAutenticacion(MimeMessage message, string mecanismo)
+    private static bool? AuthenticationResult(MimeMessage message, string mechanism)
     {
-        var encontrado = false;
+        var found = false;
 
-        foreach (var cabecera in message.Headers)
+        foreach (var header in message.Headers)
         {
-            if (!cabecera.Field.Equals("Authentication-Results", StringComparison.OrdinalIgnoreCase) &&
-                !cabecera.Field.Equals("ARC-Authentication-Results", StringComparison.OrdinalIgnoreCase))
+            if (!header.Field.Equals("Authentication-Results", StringComparison.OrdinalIgnoreCase) &&
+                !header.Field.Equals("ARC-Authentication-Results", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var valor = cabecera.Value;
-            var i = valor.IndexOf(mecanismo + "=", StringComparison.OrdinalIgnoreCase);
+            var value = header.Value;
+            var i = value.IndexOf(mechanism + "=", StringComparison.OrdinalIgnoreCase);
             if (i < 0)
             {
                 continue;
             }
 
-            encontrado = true;
-            var resto = valor.AsSpan(i + mecanismo.Length + 1).TrimStart();
-            if (resto.StartsWith("pass", StringComparison.OrdinalIgnoreCase))
+            found = true;
+            var rest = value.AsSpan(i + mechanism.Length + 1).TrimStart();
+            if (rest.StartsWith("pass", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
         }
 
-        return encontrado ? false : null;
+        return found ? false : null;
     }
 
-    private static bool EsNoReply(string direccion)
+    private static bool IsNoReply(string address)
     {
-        var local = direccion.Split('@')[0].Replace("-", string.Empty).Replace(".", string.Empty)
+        var local = address.Split('@')[0].Replace("-", string.Empty).Replace(".", string.Empty)
             .Replace("_", string.Empty);
 
         return local.Contains("noreply", StringComparison.OrdinalIgnoreCase)

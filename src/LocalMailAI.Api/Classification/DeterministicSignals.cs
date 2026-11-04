@@ -3,7 +3,12 @@ using LocalMailAI.Api.Mail;
 
 namespace LocalMailAI.Api.Classification;
 
-/// <summary>Cubo de triage. Mismos cuatro valores que <c>Bucket</c> en src/lib/mock.ts.</summary>
+// Note on language: comments and identifiers are English; the signal LABELS below stay
+// in Spanish on purpose. They are user-facing copy rendered by the frontend, which is
+// Spanish, and `src/lib/mock.ts` declares them verbatim. Translating them would be a
+// product change coordinated with the frontend, not a cleanup.
+
+/// <summary>Triage bucket. Same four values as <c>Bucket</c> in src/lib/mock.ts.</summary>
 public enum Bucket
 {
     Responder,
@@ -14,7 +19,7 @@ public enum Bucket
 
 public static class BucketNames
 {
-    /// <summary>El front espera estas cadenas exactas, en minusculas y en espanol.</summary>
+    /// <summary>The frontend expects these exact strings, lowercase and in Spanish.</summary>
     public static string ToWire(this Bucket b) => b switch
     {
         Bucket.Responder => "responder",
@@ -24,23 +29,22 @@ public static class BucketNames
         _ => throw new ArgumentOutOfRangeException(nameof(b), b, null),
     };
 
-    public static Bucket Parse(string valor) => valor switch
+    public static Bucket Parse(string value) => value switch
     {
         "responder" => Bucket.Responder,
         "informativo" => Bucket.Informativo,
         "automatizado" => Bucket.Automatizado,
         "ruido" => Bucket.Ruido,
-        _ => throw new ArgumentException($"bucket desconocido: {valor}", nameof(valor)),
+        _ => throw new ArgumentException($"unknown bucket: {value}", nameof(value)),
     };
 }
 
 /// <summary>
-/// Identidad estable de cada senal de §6.
+/// Stable identity for each signal in §6.
 ///
-/// Existe para que la logica no dependa del texto de la etiqueta. La etiqueta es una
-/// cadena de interfaz y se va a reescribir -lleva numeros dentro y hay que traducirla-;
-/// si el clasificador comparase por ella, un cambio de redaccion alteraria el triage
-/// sin que nadie se diera cuenta.
+/// It exists so the logic never depends on the label text. The label is UI copy that
+/// contains numbers and will be translated; if the classifier compared against it, a
+/// rewording would change triage behaviour without anyone noticing.
 /// </summary>
 public enum SignalKind
 {
@@ -61,12 +65,12 @@ public enum SignalKind
     Acknowledgement,
 }
 
-/// <summary>Senal tal y como la consume el front: <c>{ label, sign }</c>.</summary>
+/// <summary>A signal as the frontend consumes it: <c>{ label, sign }</c>.</summary>
 public sealed record Signal(string Label, string Sign);
 
 /// <summary>
-/// Senal con su clave y su peso. Ni la clave ni el peso salen a la API: sirven para
-/// ordenar, para clasificar y para construir el vector del clasificador del hito 6.
+/// A signal with its kind and weight. Neither leaves through the API: they are used
+/// for ordering, for classification, and to build the classifier's feature vector.
 /// </summary>
 public sealed record WeightedSignal(SignalKind Kind, string Label, int Weight)
 {
@@ -79,201 +83,203 @@ public sealed record WeightedSignal(SignalKind Kind, string Label, int Weight)
 }
 
 /// <summary>
-/// Lo que hay que saber del usuario y del historial para evaluar las senales.
-/// Nada de esto sale del correo en si: viene de la BD y de la cuenta configurada.
+/// What has to be known about the user and the history to evaluate the signals.
+/// None of this comes from the message itself: it comes from the database and the
+/// configured account.
 /// </summary>
 public sealed record SignalContext
 {
-    /// <summary>Direcciones del propio usuario, en minusculas.</summary>
+    /// <summary>The user's own addresses, lowercase.</summary>
     public required IReadOnlySet<string> OwnAddresses { get; init; }
 
-    /// <summary>Dominio de su organizacion, sin arroba. Null si no se sabe.</summary>
+    /// <summary>Their organisation's domain, without the at sign. Null if unknown.</summary>
     public string? OrgDomain { get; init; }
 
-    /// <summary>Correos recibidos de este remitente (sender_stats.received).</summary>
+    /// <summary>Messages received from this sender (sender_stats.received).</summary>
     public int SenderReceived { get; init; }
 
-    /// <summary>Veces que el usuario le ha respondido (sender_stats.replied).</summary>
+    /// <summary>Times the user has replied to them (sender_stats.replied).</summary>
     public int SenderReplied { get; init; }
 
     /// <summary>
-    /// Veces que el usuario ha abierto correo de este remitente (sender_stats.opened).
-    /// Es lo que separa "automatizado" de "ruido": las dos son maquinas, pero una la
-    /// lees y la otra no.
+    /// Times the user has opened mail from this sender (sender_stats.opened).
+    /// This is what separates "automatizado" from "ruido": both are machines, but one
+    /// gets read and the other does not.
     /// </summary>
     public int SenderOpened { get; init; }
 
     /// <summary>
-    /// El usuario tiene algun mensaje propio en este hilo. La spec lo describe como
-    /// "tu direccion en References", pero References solo lleva Message-IDs; en la
-    /// practica se resuelve mirando si algun mensaje del hilo salio de Enviados.
+    /// The user has a message of their own in this thread. The spec describes it as
+    /// "your address in References", but References only carries Message-IDs; in
+    /// practice it is resolved by checking whether any message in the thread came from
+    /// the Sent folder.
     /// </summary>
     public bool IParticipatesInThread { get; init; }
 
     /// <summary>
-    /// Mensajes seguidos del remitente en este hilo sin respuesta del usuario.
-    /// A partir de 3 es la senal "Tercer mensaje sin respuesta tuya".
+    /// Consecutive messages from the sender in this thread with no reply from the user.
+    /// Three or more is the "Tercer mensaje sin respuesta tuya" signal.
     /// </summary>
     public int ConsecutiveUnanswered { get; init; }
 
-    /// <summary>Cuerpo ya normalizado. La pregunta directa se busca aqui, no en el HTML.</summary>
+    /// <summary>Already-normalised body. Direct questions are looked for here, not in the HTML.</summary>
     public string CleanBody { get; init; } = string.Empty;
 }
 
 /// <summary>
-/// Las senales deterministas de BACKEND.md §6: sin IA, en microsegundos, y
-/// brutalmente predictivas. Cada una lleva texto legible porque la explicacion
-/// visible es lo que hace que el usuario confie en el triage o lo corrija.
+/// The deterministic signals of BACKEND.md §6: no AI, microseconds, and brutally
+/// predictive. Each one carries readable text because the visible explanation is what
+/// makes a user trust the triage or correct it.
 ///
-/// Los pesos son los de la tabla de §6: +++ = 3, ++ = 2, + = 1, y negativos igual.
+/// Weights come from the §6 table: +++ = 3, ++ = 2, + = 1, and the same for negatives.
 /// </summary>
 public static partial class DeterministicSignals
 {
-    private const int MaxSignals = 6;   // §6: maximo 6 por correo
+    private const int MaxSignals = 6;   // §6: at most 6 per message
 
     // "No requiere accion por vuestra parte", "solo para tu informacion", "FYI".
-    // Es la unica senal que da evidencia POSITIVA de que un correo es informativo, en
-    // vez de llegar a ese cajon por descarte.
+    // This is the only signal that gives POSITIVE evidence that a message is
+    // informational, rather than reaching that bucket by elimination.
     [GeneratedRegex(@"(no requiere (ninguna )?(accion|acción)|no es necesario responder|no hace falta responder|s[oó]lo (para )?(tu|su|vuestra) informaci[oó]n|para que quede constancia|no action (is )?required|no reply (is )?needed|for your information|FYI)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex SinAccionRequerida();
+    private static partial Regex NoActionRequired();
 
-    // Acuse de recibo: "hemos recibido su solicitud". Dice explicitamente que la
-    // pelota esta en el tejado del remitente, no en el tuyo.
+    // Acknowledgement of receipt: "hemos recibido su solicitud". It states explicitly
+    // that the ball is in the sender's court, not yours.
     [GeneratedRegex(@"(hemos recibido (su|tu)|su (solicitud|peticion|petición|mensaje) ha sido (registrad|recibid)|we have received your|your (request|ticket) has been (received|registered))",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex AcuseDeRecibo();
+    private static partial Regex AcknowledgementOfReceipt();
 
-    // El signo de interrogacion de ancho completo aparece en correo asiatico.
+    // The full-width question mark shows up in Asian mail.
     [GeneratedRegex(@"[?？]\s*$", RegexOptions.CultureInvariant)]
-    private static partial Regex TerminaEnPregunta();
+    private static partial Regex EndsWithQuestionMark();
 
     public static List<WeightedSignal> Compute(MessageFacts facts, SignalContext ctx)
     {
         ArgumentNullException.ThrowIfNull(facts);
         ArgumentNullException.ThrowIfNull(ctx);
 
-        var senales = new List<WeightedSignal>(10);
+        var signals = new List<WeightedSignal>(10);
 
-        // --- Historial con el remitente: la senal mas predictiva que hay ---------
+        // --- Sender history: the single most predictive signal there is -----------
 
         if (ctx.SenderReplied > 0)
         {
-            senales.Add(new(SignalKind.RepliedBefore, $"Le has respondido {ctx.SenderReplied} veces", 3));
+            signals.Add(new(SignalKind.RepliedBefore, $"Le has respondido {ctx.SenderReplied} veces", 3));
         }
         else if (ctx.SenderReceived == 0)
         {
-            // Remitente desconocido: no es buena ni mala senal, es falta de datos.
-            // Por eso es neutral y ademas baja la confianza en SignalBaseline.
-            senales.Add(new(SignalKind.NewSender, "Remitente nuevo, sin historial", 0));
+            // Unknown sender: neither good nor bad evidence, just missing data. Hence
+            // neutral, and it also lowers confidence in SignalBaseline.
+            signals.Add(new(SignalKind.NewSender, "Remitente nuevo, sin historial", 0));
         }
         else if (ctx.SenderReceived >= 5)
         {
-            // Con pocos correos recibidos, "nunca has respondido" no dice nada:
-            // puede que simplemente no haya habido ocasion.
-            senales.Add(new(SignalKind.NeverReplied, $"Nunca lo has respondido (0 de {ctx.SenderReceived})", -2));
+            // With few messages received, "you never replied" says nothing: there may
+            // simply never have been an occasion.
+            signals.Add(new(SignalKind.NeverReplied, $"Nunca lo has respondido (0 de {ctx.SenderReceived})", -2));
         }
 
-        // --- Como te han puesto en el correo ------------------------------------
+        // --- How you were addressed ------------------------------------------------
 
-        var enPara = facts.To.Any(ctx.OwnAddresses.Contains);
-        var enCc = facts.Cc.Any(ctx.OwnAddresses.Contains);
+        var inTo = facts.To.Any(ctx.OwnAddresses.Contains);
+        var inCc = facts.Cc.Any(ctx.OwnAddresses.Contains);
 
-        if (enPara && !enCc)
+        if (inTo && !inCc)
         {
-            senales.Add(new(SignalKind.ToNotCc, "Vas en Para:, no en Cc:", 2));
+            signals.Add(new(SignalKind.ToNotCc, "Vas en Para:, no en Cc:", 2));
         }
-        else if (enCc && !enPara)
+        else if (inCc && !inTo)
         {
-            senales.Add(new(SignalKind.CcNotTo, "Vas en Cc:, no en Para:", -2));
+            signals.Add(new(SignalKind.CcNotTo, "Vas en Cc:, no en Para:", -2));
         }
 
-        // --- Estado del hilo ----------------------------------------------------
+        // --- Thread state ----------------------------------------------------------
 
         if (ctx.IParticipatesInThread)
         {
-            senales.Add(new(SignalKind.ThreadParticipant, "Hilo en el que ya participas", 2));
+            signals.Add(new(SignalKind.ThreadParticipant, "Hilo en el que ya participas", 2));
         }
 
         if (ctx.ConsecutiveUnanswered >= 3)
         {
-            senales.Add(new(SignalKind.ThirdUnanswered, "Tercer mensaje sin respuesta tuya", 3));
+            signals.Add(new(SignalKind.ThirdUnanswered, "Tercer mensaje sin respuesta tuya", 3));
         }
 
-        // --- Contenido ----------------------------------------------------------
+        // --- Content ---------------------------------------------------------------
 
-        if (AcabaPreguntando(ctx.CleanBody))
+        if (AsksAtTheEnd(ctx.CleanBody))
         {
-            senales.Add(new(SignalKind.EndsWithQuestion, "Termina en pregunta directa", 1));
+            signals.Add(new(SignalKind.EndsWithQuestion, "Termina en pregunta directa", 1));
         }
 
-        // Peso -2: aleja de "responder" con la misma fuerza con la que "vas en Para:"
-        // acerca. Un correo dirigido a ti que dice que no requiere accion es un
-        // empate, y un empate tiene que salir con poca confianza, no con mucha.
-        if (SinAccionRequerida().IsMatch(ctx.CleanBody))
+        // Weight -2: pushes away from "responder" exactly as hard as "you are in To:"
+        // pulls towards it. A message addressed to you that says no action is required
+        // is a tie, and a tie has to come out with low confidence, not high.
+        if (NoActionRequired().IsMatch(ctx.CleanBody))
         {
-            senales.Add(new(SignalKind.ExplicitlyNoAction, "Dice explicitamente: no requiere accion", -2));
+            signals.Add(new(SignalKind.ExplicitlyNoAction, "Dice explicitamente: no requiere accion", -2));
         }
 
-        if (AcuseDeRecibo().IsMatch(ctx.CleanBody))
+        if (AcknowledgementOfReceipt().IsMatch(ctx.CleanBody))
         {
-            senales.Add(new(SignalKind.Acknowledgement, "Acuse de recibo: no espera respuesta", -2));
+            signals.Add(new(SignalKind.Acknowledgement, "Acuse de recibo: no espera respuesta", -2));
         }
 
-        if (ctx.OrgDomain is { Length: > 0 } dominio &&
-            facts.FromEmail.EndsWith("@" + dominio, StringComparison.OrdinalIgnoreCase))
+        if (ctx.OrgDomain is { Length: > 0 } domain &&
+            facts.FromEmail.EndsWith("@" + domain, StringComparison.OrdinalIgnoreCase))
         {
-            senales.Add(new(SignalKind.SameOrgDomain, "Mismo dominio que tu organizacion", 1));
+            signals.Add(new(SignalKind.SameOrgDomain, "Mismo dominio que tu organizacion", 1));
         }
 
-        // --- Marcas de envio masivo o automatico --------------------------------
+        // --- Bulk and machine markers ----------------------------------------------
 
         if (facts.HasListUnsubscribe)
         {
-            senales.Add(new(SignalKind.ListUnsubscribe, "List-Unsubscribe presente", -3));
+            signals.Add(new(SignalKind.ListUnsubscribe, "List-Unsubscribe presente", -3));
         }
 
         if (facts.IsNoReplyAddress)
         {
-            senales.Add(new(SignalKind.NoReplyAddress, "Direccion no-reply", -2));
+            signals.Add(new(SignalKind.NoReplyAddress, "Direccion no-reply", -2));
         }
 
         if (facts.IsAutoSubmitted)
         {
-            senales.Add(new(SignalKind.AutoSubmitted, "Auto-Submitted / Precedence: bulk", -2));
+            signals.Add(new(SignalKind.AutoSubmitted, "Auto-Submitted / Precedence: bulk", -2));
         }
 
-        // --- Autenticacion ------------------------------------------------------
+        // --- Authentication --------------------------------------------------------
 
         if (facts.SpfPass == true && facts.DkimPass == true)
         {
-            senales.Add(new(SignalKind.Authenticated, "Remitente verificado (DKIM + SPF)", 1));
+            signals.Add(new(SignalKind.Authenticated, "Remitente verificado (DKIM + SPF)", 1));
         }
 
-        // §6: maximo 6, ordenadas por peso absoluto descendente. OrderByDescending
-        // es estable, asi que a igual peso manda el orden en que se han anadido, que
-        // es el de la tabla de la spec. Dos ejecuciones dan el mismo resultado.
-        return [.. senales.OrderByDescending(s => Math.Abs(s.Weight)).Take(MaxSignals)];
+        // §6: at most 6, ordered by descending absolute weight. OrderByDescending is
+        // stable, so for equal weights insertion order wins, which is the order of the
+        // table in the spec. Two runs produce the same result.
+        return [.. signals.OrderByDescending(s => Math.Abs(s.Weight)).Take(MaxSignals)];
     }
 
     /// <summary>
-    /// Pregunta directa al final del mensaje. Se mira el final y no todo el cuerpo:
-    /// una pregunta en el primer parrafo de un correo largo suele ser retorica
-    /// ("¿Sabias que...?" de una newsletter).
+    /// A direct question at the end of the message. Only the end is examined, not the
+    /// whole body: a question in the first paragraph of a long message is usually
+    /// rhetorical ("Did you know...?" from a newsletter).
     /// </summary>
-    private static bool AcabaPreguntando(string cleanBody)
+    private static bool AsksAtTheEnd(string cleanBody)
     {
         if (string.IsNullOrWhiteSpace(cleanBody))
         {
             return false;
         }
 
-        var lineas = cleanBody.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var lines = cleanBody.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        // Las dos ultimas lineas: la ultima suele ser la despedida ("Un saludo").
-        foreach (var linea in lineas.Reverse().Take(2))
+        // The last two lines: the final one is often a sign-off ("Un saludo").
+        foreach (var line in lines.Reverse().Take(2))
         {
-            if (TerminaEnPregunta().IsMatch(linea))
+            if (EndsWithQuestionMark().IsMatch(line))
             {
                 return true;
             }

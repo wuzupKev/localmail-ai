@@ -9,28 +9,28 @@ using MimeKit;
 
 namespace LocalMailAI.Api.Mail;
 
-/// <summary>Resultado de ingerir un mensaje.</summary>
-/// <param name="EmailId">Id estable del correo.</param>
-/// <param name="Inserted">False si ya estaba (sync repetido).</param>
-/// <param name="Bucket">Clasificacion provisional por senales.</param>
+/// <summary>Result of ingesting one message.</summary>
+/// <param name="EmailId">Stable message id.</param>
+/// <param name="Inserted">False if it was already present (a repeated sync).</param>
+/// <param name="Bucket">Provisional classification from the signals.</param>
 public sealed record IngestResult(string EmailId, bool Inserted, Bucket Bucket, double Confidence);
 
-/// <summary>Fila de sender_stats. Dapper no mapea tuplas con nombres.</summary>
+/// <summary>A sender_stats row. Dapper does not map named tuples.</summary>
 internal sealed record SenderStats(long Received, long Replied, long Opened);
 
 /// <summary>
-/// Etapas 2 a 6 del pipeline de BACKEND.md §5: parseo MIME, normalizacion, senales
-/// deterministas y clasificacion provisional, todo escrito en la BD.
+/// Stages 2 to 6 of the BACKEND.md §5 pipeline: MIME parsing, normalisation,
+/// deterministic signals and provisional classification, all written to the database.
 ///
-/// Esta separado del sync IMAP a proposito. El sync solo trae bytes; lo que se hace
-/// con ellos se puede probar sin red, y la misma ruta sirve para la ingesta real y
-/// para los ficheros .eml de prueba.
+/// Kept separate from the IMAP sync on purpose. The sync only fetches bytes; what is
+/// done with them can be tested without a network, and the same path serves both real
+/// ingestion and .eml test files.
 /// </summary>
 public sealed class EmailIngestor(ILogger<EmailIngestor> log)
 {
     /// <summary>
-    /// Id estable: hash de Message-ID + cuenta (§4). Estable entre syncs, porque el
-    /// UID de IMAP puede cambiar y el Message-ID no.
+    /// Stable id: a hash of Message-ID plus the account (§4). Stable across syncs,
+    /// because an IMAP UID can change and a Message-ID cannot.
     /// </summary>
     public static string ComputeId(string accountId, string messageId)
     {
@@ -52,20 +52,20 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
         var facts = MessageFacts.From(message);
         var id = ComputeId(accountId, facts.MessageId);
 
-        // Cada mensaje en su propia transaccion: si uno de 5.000 esta roto, se pierde
-        // ese y no la pasada entera. §5 pide que cada etapa sea reanudable.
+        // One transaction per message: if one of 5,000 is broken, that one is lost and
+        // not the whole pass. §5 requires each stage to be resumable.
         using var tx = cn.BeginTransaction();
 
-        var yaEstaba = await cn.ExecuteScalarAsync<long>(
+        var alreadyPresent = await cn.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM emails WHERE id = @id", new { id }, tx) > 0;
 
-        if (yaEstaba)
+        if (alreadyPresent)
         {
             tx.Rollback();
             return new IngestResult(id, false, Bucket.Informativo, 0);
         }
 
-        var cuerpo = BodyNormalizer.FromMessage(message);
+        var body = BodyNormalizer.FromMessage(message);
 
         await cn.ExecuteAsync(
             """
@@ -109,15 +109,15 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
             new
             {
                 id,
-                bodyClean = cuerpo.Clean,
-                preview = cuerpo.Preview,
-                // El recuento real de tokens lo pone la etapa de embeddings; esto es
-                // una estimacion para poder ordenar trabajo por coste antes de eso.
-                tokenCount = cuerpo.Clean.Length / 4,
+                bodyClean = body.Clean,
+                preview = body.Preview,
+                // The real token count comes from the embedding stage; this is an
+                // estimate so work can be ordered by cost before that happens.
+                tokenCount = body.Clean.Length / 4,
             }, tx);
 
-        // email_fts es contentless: su rowid tiene que ser el de emails (ver el
-        // comentario de 001_initial.sql sobre VACUUM).
+        // email_fts is contentless: its rowid has to be the one from emails (see the
+        // comment about VACUUM in 001_initial.sql).
         var rowid = await cn.ExecuteScalarAsync<long>(
             "SELECT rowid FROM emails WHERE id = @id", new { id }, tx);
 
@@ -130,7 +130,7 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
             {
                 rowid,
                 subject = facts.Subject ?? string.Empty,
-                bodyClean = cuerpo.Clean,
+                bodyClean = body.Clean,
                 fromName = facts.FromName ?? string.Empty,
                 fromEmail = facts.FromEmail,
             }, tx);
@@ -145,9 +145,9 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
             """,
             new { accountId, fromEmail = facts.FromEmail, lastSeen = facts.DateUtc.ToString("O") }, tx);
 
-        var ctx = await ContextoAsync(cn, tx, accountId, id, facts, cuerpo.Clean);
-        var senales = DeterministicSignals.Compute(facts, ctx);
-        var clasificacion = SignalBaseline.Classify(senales, ctx);
+        var ctx = await BuildContextAsync(cn, tx, accountId, id, facts, body.Clean);
+        var signals = DeterministicSignals.Compute(facts, ctx);
+        var classification = SignalBaseline.Classify(signals, ctx);
 
         await cn.ExecuteAsync(
             """
@@ -157,33 +157,33 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
             new
             {
                 id,
-                bucket = clasificacion.Bucket.ToWire(),
-                confidence = clasificacion.Confidence,
+                bucket = classification.Bucket.ToWire(),
+                confidence = classification.Confidence,
                 signalsJson = JsonSerializer.Serialize(
-                    clasificacion.Signals.Select(s => new SignalDto(s.Label, s.Sign))),
-                // Version 0 = solo senales, sin clasificador entrenado. El hito 6
-                // empieza a incrementarla.
+                    classification.Signals.Select(s => new SignalDto(s.Label, s.Sign))),
+                // Version 0 = signals only, no trained classifier. Milestone 6 starts
+                // incrementing it.
                 modelVersion = 0,
                 computedAt = DateTimeOffset.UtcNow.ToString("O"),
             }, tx);
 
         tx.Commit();
 
-        log.LogDebug("Ingerido {Id} de {From}: {Bucket} ({Confianza})",
-            id, facts.FromEmail, clasificacion.Bucket.ToWire(), clasificacion.Confidence);
+        log.LogDebug("Ingested {Id} from {From}: {Bucket} ({Confidence})",
+            id, facts.FromEmail, classification.Bucket.ToWire(), classification.Confidence);
 
-        return new IngestResult(id, true, clasificacion.Bucket, clasificacion.Confidence);
+        return new IngestResult(id, true, classification.Bucket, classification.Confidence);
     }
 
     /// <summary>
-    /// Reune el historial que necesitan las senales: estadisticas del remitente y
-    /// estado del hilo. Todo sale de la BD, no del mensaje.
+    /// Gathers the history the signals need: sender statistics and thread state. All
+    /// of it comes from the database, none from the message.
     ///
-    /// Todas las consultas acotan por cuenta. El MVP gestiona un solo buzon, pero el
-    /// esquema admite varios y una consulta sin acotar daria senales cruzadas entre
-    /// bandejas: un bug que no se ve hasta que alguien anade la segunda cuenta.
+    /// Every query is scoped by account. The MVP handles a single mailbox, but the
+    /// schema allows several and an unscoped query would produce signals bleeding
+    /// across inboxes: a bug nobody sees until someone adds a second account.
     /// </summary>
-    private static async Task<SignalContext> ContextoAsync(
+    private static async Task<SignalContext> BuildContextAsync(
         SqliteConnection cn,
         SqliteTransaction tx,
         string accountId,
@@ -191,13 +191,13 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
         MessageFacts facts,
         string cleanBody)
     {
-        var cuenta = await cn.QuerySingleOrDefaultAsync<string?>(
+        var account = await cn.QuerySingleOrDefaultAsync<string?>(
             "SELECT email FROM accounts WHERE id = @accountId", new { accountId }, tx);
 
-        var propias = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!string.IsNullOrWhiteSpace(cuenta))
+        var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(account))
         {
-            propias.Add(cuenta.Trim().ToLowerInvariant());
+            own.Add(account.Trim().ToLowerInvariant());
         }
 
         var stats = await cn.QuerySingleOrDefaultAsync<SenderStats>(
@@ -207,59 +207,59 @@ public sealed class EmailIngestor(ILogger<EmailIngestor> log)
             """,
             new { accountId, fromEmail = facts.FromEmail }, tx) ?? new SenderStats(0, 0, 0);
 
-        // El correo que se esta ingiriendo ya ha sumado 1 en received, y para las
-        // senales interesa el historial ANTERIOR: "le has respondido 12 veces" no
-        // deberia cambiar por el hecho de recibir este.
-        var recibidos = (int)Math.Max(0, stats.Received - 1);
+        // The message being ingested has already added 1 to received, and the signals
+        // want the history BEFORE it: "you have replied 12 times" should not change
+        // just because this message arrived.
+        var received = (int)Math.Max(0, stats.Received - 1);
 
-        // Participacion en el hilo: algun mensaje del hilo salio de una direccion
-        // propia. Requiere haber ingerido Enviados, que es justo lo que §7 pide para
-        // el arranque en frio.
-        string[] mios = propias.Count == 0 ? [] : [.. propias];
+        // Thread participation: some message in the thread came from one of the user's
+        // own addresses. This requires the Sent folder to have been ingested, which is
+        // exactly what §7 asks for in the cold start.
+        string[] mine = own.Count == 0 ? [] : [.. own];
 
-        var participo = mios.Length > 0 && await cn.ExecuteScalarAsync<long>(
+        var participates = mine.Length > 0 && await cn.ExecuteScalarAsync<long>(
             """
             SELECT COUNT(*) FROM emails
             WHERE account_id = @accountId
               AND thread_id = @threadId
-              AND from_email IN @mios
+              AND from_email IN @mine
               AND id <> @id
             """,
-            new { accountId, threadId = facts.ThreadId, mios, id = emailId }, tx) > 0;
+            new { accountId, threadId = facts.ThreadId, mine, id = emailId }, tx) > 0;
 
-        // Mensajes seguidos del remitente despues de la ultima respuesta propia.
-        var ultimaMia = mios.Length == 0 ? null : await cn.ExecuteScalarAsync<string?>(
+        // Consecutive messages from the sender since the user's last reply.
+        var lastFromMe = mine.Length == 0 ? null : await cn.ExecuteScalarAsync<string?>(
             """
             SELECT MAX(date_utc) FROM emails
             WHERE account_id = @accountId
               AND thread_id = @threadId
-              AND from_email IN @mios
+              AND from_email IN @mine
             """,
-            new { accountId, threadId = facts.ThreadId, mios }, tx);
+            new { accountId, threadId = facts.ThreadId, mine }, tx);
 
-        var seguidos = (int)await cn.ExecuteScalarAsync<long>(
+        var consecutive = (int)await cn.ExecuteScalarAsync<long>(
             """
             SELECT COUNT(*) FROM emails
             WHERE account_id = @accountId
               AND thread_id = @threadId
               AND from_email = @fromEmail
-              AND date_utc > COALESCE(@ultimaMia, '')
+              AND date_utc > COALESCE(@lastFromMe, '')
             """,
-            new { accountId, threadId = facts.ThreadId, fromEmail = facts.FromEmail, ultimaMia }, tx);
+            new { accountId, threadId = facts.ThreadId, fromEmail = facts.FromEmail, lastFromMe }, tx);
 
-        var dominio = propias.Count > 0 && propias.First().Contains('@')
-            ? propias.First().Split('@')[1]
+        var domain = own.Count > 0 && own.First().Contains('@')
+            ? own.First().Split('@')[1]
             : null;
 
         return new SignalContext
         {
-            OwnAddresses = propias,
-            OrgDomain = dominio,
-            SenderReceived = recibidos,
+            OwnAddresses = own,
+            OrgDomain = domain,
+            SenderReceived = received,
             SenderReplied = (int)stats.Replied,
             SenderOpened = (int)stats.Opened,
-            IParticipatesInThread = participo,
-            ConsecutiveUnanswered = seguidos,
+            IParticipatesInThread = participates,
+            ConsecutiveUnanswered = consecutive,
             CleanBody = cleanBody,
         };
     }

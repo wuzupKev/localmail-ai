@@ -6,13 +6,13 @@ using MimeKit;
 
 namespace LocalMailAI.Api.Mail;
 
-/// <summary>Resultado de normalizar un cuerpo de correo (BACKEND.md §5, etapa 3).</summary>
-/// <param name="Clean">Texto limpio: sin HTML, sin citas, sin firma.</param>
-/// <param name="Preview">140 caracteres del texto limpio, en una linea.</param>
-/// <param name="Paragraphs">Parrafos, que es la forma que espera Email.body del front.</param>
-/// <param name="QuotedLinesRemoved">Lineas de cita descartadas.</param>
-/// <param name="SignatureLinesRemoved">Lineas de firma descartadas.</param>
-/// <param name="SourceFormat">"plain", "html" o "none".</param>
+/// <summary>Result of normalising a message body (BACKEND.md §5, stage 3).</summary>
+/// <param name="Clean">Clean text: no HTML, no quotes, no signature.</param>
+/// <param name="Preview">140 characters of the clean text, on one line.</param>
+/// <param name="Paragraphs">Paragraphs, which is the shape Email.body expects.</param>
+/// <param name="QuotedLinesRemoved">Quoted lines discarded.</param>
+/// <param name="SignatureLinesRemoved">Signature lines discarded.</param>
+/// <param name="SourceFormat">"plain", "html" or "none".</param>
 public sealed record NormalizedBody(
     string Clean,
     string Preview,
@@ -22,82 +22,82 @@ public sealed record NormalizedBody(
     string SourceFormat);
 
 /// <summary>
-/// Normalizacion de cuerpos de correo: HTML a texto, fuera citas, fuera firmas.
+/// Message body normalisation: HTML to text, quotes out, signatures out.
 ///
-/// Es la etapa que mas afecta a la calidad final (BACKEND.md §5): recortar citas y
-/// firmas quita entre el 50 y el 70% de los tokens de entrada, y ademas evita que el
-/// clasificador aprenda de texto que el remitente no escribio.
+/// This is the stage that most affects final quality (BACKEND.md §5): stripping quotes
+/// and signatures removes 50-70% of the input tokens, and it stops the classifier
+/// learning from text the sender did not write.
 ///
-/// Las librerias de esto estan semi-abandonadas en todos los lenguajes (§11), asi que
-/// las reglas son propias. Criterio al escribirlas: ante la duda, conservar texto. Un
-/// parrafo de cita que se cuela estorba; un parrafo real que se borra es informacion
-/// perdida que nadie va a echar en falta porque no se ve.
+/// The libraries for this are semi-abandoned in every language (§11), so the rules are
+/// our own. The principle while writing them: when in doubt, keep the text. A quoted
+/// paragraph that slips through is noise; a real paragraph that gets deleted is
+/// information lost, and nobody will notice because it is not visible.
 /// </summary>
 public static partial class BodyNormalizer
 {
     private const int PreviewLength = 140;
 
-    // --- Atribuciones de cita: "El X escribio:", "On X wrote:", cabeceras de Outlook ---
-    // Se evaluan sobre hasta 3 lineas unidas, porque los clientes las parten.
+    // --- Quote attributions: "El X escribio:", "On X wrote:", Outlook header blocks ---
+    // Evaluated over windows of up to 3 joined lines, because clients wrap them.
 
     [GeneratedRegex(@"^\s*-{2,}\s*(Original Message|Mensaje original|Forwarded message|Mensaje reenviado)\s*-{2,}",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex SeparadorOriginal();
+    private static partial Regex OriginalMessageSeparator();
 
     [GeneratedRegex(@"^\s*_{5,}\s*$", RegexOptions.CultureInvariant)]
-    private static partial Regex SeparadorOutlook();
+    private static partial Regex OutlookSeparator();
 
-    // "El 2 de noviembre de 2026, 9:14, Ana <a@x.es> escribio:" y sus variantes por idioma.
+    // "El 2 de noviembre de 2026, 9:14, Ana <a@x.es> escribio:" and its variants.
     [GeneratedRegex(@"^\s*(El|On|Am|Le|A|Il)\b.{0,200}?\b(escribi(o|ó)|wrote|schrieb|a écrit|ha scritto|escreveu)\s*:\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
-    private static partial Regex AtribucionConVerbo();
+    private static partial Regex AttributionWithVerb();
 
-    // Bloque de cabeceras que Outlook incrusta: "De: ... Enviado: ... Para: ..."
+    // The header block Outlook embeds: "De: ... Enviado: ... Para: ..."
     [GeneratedRegex(@"^\s*(De|From|Von|Da)\s*:\s*.{1,200}?(Enviado|Sent|Gesendet|Inviato|Fecha|Date)\s*:",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
-    private static partial Regex CabeceraIncrustada();
+    private static partial Regex EmbeddedHeaderBlock();
 
-    // --- Firmas ---
+    // --- Signatures ---
 
     [GeneratedRegex(@"^\s*(Sent from my .{0,40}|Enviado desde mi .{0,40}|Obtener Outlook para .{0,20}|Get Outlook for .{0,20})\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex FirmaMovil();
+    private static partial Regex MobileSignature();
 
     [GeneratedRegex(@"(aviso legal|confidencial|confidential|privileged|clausula de privacidad|proteccion de datos|datos personales.{0,40}LOPD|GDPR|RGPD)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex Descargo();
+    private static partial Regex LegalDisclaimer();
 
     [GeneratedRegex(@"(\+?\d[\d\s().-]{7,}\d)", RegexOptions.CultureInvariant)]
-    private static partial Regex Telefono();
+    private static partial Regex PhoneNumber();
 
     [GeneratedRegex(@"[\w.+-]+@[\w-]+\.[\w.-]+", RegexOptions.CultureInvariant)]
-    private static partial Regex Correo();
+    private static partial Regex EmailAddress();
 
     [GeneratedRegex(@"\b(https?://|www\.)\S+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex Enlace();
+    private static partial Regex Link();
 
     [GeneratedRegex(@"^\s*(Tel\.?|Telf\.?|Tfno\.?|M(o|ó)vil|Mobile|Phone|Fax|Linkedin|Twitter|Skype)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex EtiquetaContacto();
+    private static partial Regex ContactLabel();
 
-    [GeneratedRegex(@"[ \t\u00a0\u2007\u2009\u202f]{2,}", RegexOptions.CultureInvariant)]
-    private static partial Regex EspaciosSeguidos();
+    [GeneratedRegex(@"[ \t    ]{2,}", RegexOptions.CultureInvariant)]
+    private static partial Regex RepeatedSpaces();
 
     [GeneratedRegex(@"\n{3,}", RegexOptions.CultureInvariant)]
-    private static partial Regex LineasVaciasSeguidas();
+    private static partial Regex RepeatedBlankLines();
 
     // ---------------------------------------------------------------------------
 
-    /// <summary>Normaliza el cuerpo de un mensaje MIME, prefiriendo text/plain.</summary>
+    /// <summary>Normalises a MIME message body, preferring text/plain.</summary>
     public static NormalizedBody FromMessage(MimeMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        // text/plain primero: ya viene sin markup y es lo que el remitente escribio.
-        var plano = message.TextBody;
-        if (!string.IsNullOrWhiteSpace(plano))
+        // text/plain first: it arrives without markup and it is what the sender wrote.
+        var plain = message.TextBody;
+        if (!string.IsNullOrWhiteSpace(plain))
         {
-            return Normalize(plano, "plain");
+            return Normalize(plain, "plain");
         }
 
         var html = message.HtmlBody;
@@ -106,14 +106,14 @@ public static partial class BodyNormalizer
             return Normalize(HtmlToText(html), "html");
         }
 
-        // Sin text/plain ni text/html: queda rebuscar cualquier parte de texto
-        // (hay correos con un unico text/enriched o con el cuerpo en un adjunto).
-        foreach (var parte in message.BodyParts.OfType<TextPart>())
+        // Neither text/plain nor text/html: fall back to any text part at all. Some
+        // messages carry a single text/enriched part, or the body as an attachment.
+        foreach (var part in message.BodyParts.OfType<TextPart>())
         {
-            var texto = parte.IsHtml ? HtmlToText(parte.Text) : parte.Text;
-            if (!string.IsNullOrWhiteSpace(texto))
+            var text = part.IsHtml ? HtmlToText(part.Text) : part.Text;
+            if (!string.IsNullOrWhiteSpace(text))
             {
-                return Normalize(texto, parte.IsHtml ? "html" : "plain");
+                return Normalize(text, part.IsHtml ? "html" : "plain");
             }
         }
 
@@ -121,9 +121,9 @@ public static partial class BodyNormalizer
     }
 
     /// <summary>
-    /// HTML a texto. Los elementos de bloque pasan a salto de linea y los
-    /// &lt;blockquote&gt; salen con "&gt; " delante: asi el quitador de citas trata igual
-    /// el correo HTML y el de texto plano, en vez de tener dos caminos que divergen.
+    /// HTML to text. Block elements become line breaks and &lt;blockquote&gt; content
+    /// comes out prefixed with "&gt; ", so the quote stripper handles HTML and plain
+    /// text mail identically instead of having two paths that drift apart.
     /// </summary>
     public static string HtmlToText(string html)
     {
@@ -134,146 +134,146 @@ public static partial class BodyNormalizer
 
         var doc = new HtmlParser().ParseDocument(html);
 
-        foreach (var nodo in doc.QuerySelectorAll("script, style, head, noscript, template"))
+        foreach (var node in doc.QuerySelectorAll("script, style, head, noscript, template"))
         {
-            nodo.Remove();
+            node.Remove();
         }
 
         var sb = new StringBuilder();
-        Recorrer(doc.Body ?? doc.DocumentElement, sb);
+        Walk(doc.Body ?? doc.DocumentElement, sb);
 
         return sb.ToString();
     }
 
-    private static void Recorrer(INode? nodo, StringBuilder sb)
+    private static void Walk(INode? node, StringBuilder sb)
     {
-        if (nodo is null)
+        if (node is null)
         {
             return;
         }
 
-        switch (nodo)
+        switch (node)
         {
             case IText t:
-                var valor = t.Data;
-                if (!string.IsNullOrEmpty(valor))
+                var value = t.Data;
+                if (!string.IsNullOrEmpty(value))
                 {
-                    sb.Append(valor);
+                    sb.Append(value);
                 }
                 return;
 
             case IElement el:
-                var etiqueta = el.LocalName;
+                var tag = el.LocalName;
 
-                if (etiqueta is "br")
+                if (tag is "br")
                 {
                     sb.Append('\n');
                     return;
                 }
 
-                if (etiqueta is "hr")
+                if (tag is "hr")
                 {
                     sb.Append("\n\n");
                     return;
                 }
 
-                // Un <blockquote> (la cita de Gmail y compania) se renderiza aparte y
-                // se prefija linea a linea cuando ya estan formadas. Prefijar mientras
-                // se recorre no funciona: el primer hijo de bloque mete su propio
-                // salto de linea y deja el "> " huerfano en la linea anterior.
-                if (etiqueta is "blockquote")
+                // A <blockquote> (the Gmail-style quote and friends) is rendered
+                // separately and prefixed line by line once the lines exist. Prefixing
+                // while walking does not work: the first block child emits its own
+                // line break and leaves the "> " orphaned on the previous line.
+                if (tag is "blockquote")
                 {
-                    var interno = new StringBuilder();
-                    foreach (var hijo in el.ChildNodes)
+                    var inner = new StringBuilder();
+                    foreach (var child in el.ChildNodes)
                     {
-                        Recorrer(hijo, interno);
+                        Walk(child, inner);
                     }
 
                     sb.Append('\n');
-                    foreach (var linea in interno.ToString().Split('\n'))
+                    foreach (var line in inner.ToString().Split('\n'))
                     {
-                        if (linea.Trim().Length == 0)
+                        if (line.Trim().Length == 0)
                         {
                             continue;
                         }
-                        sb.Append("> ").Append(linea.Trim()).Append('\n');
+                        sb.Append("> ").Append(line.Trim()).Append('\n');
                     }
                     return;
                 }
 
-                var esBloque = etiqueta is "p" or "div" or "li" or "tr" or "table"
+                var isBlock = tag is "p" or "div" or "li" or "tr" or "table"
                     or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "ul" or "ol"
                     or "pre" or "section" or "article" or "header" or "footer";
 
-                if (esBloque)
+                if (isBlock)
                 {
                     sb.Append('\n');
                 }
 
-                foreach (var hijo in el.ChildNodes)
+                foreach (var child in el.ChildNodes)
                 {
-                    Recorrer(hijo, sb);
+                    Walk(child, sb);
                 }
 
-                if (etiqueta is "td" or "th")
+                if (tag is "td" or "th")
                 {
                     sb.Append('\t');
                 }
 
-                if (esBloque)
+                if (isBlock)
                 {
                     sb.Append('\n');
                 }
                 return;
 
             default:
-                foreach (var hijo in nodo.ChildNodes)
+                foreach (var child in node.ChildNodes)
                 {
-                    Recorrer(hijo, sb);
+                    Walk(child, sb);
                 }
                 return;
         }
     }
 
-    /// <summary>Normaliza texto ya plano.</summary>
-    public static NormalizedBody Normalize(string texto, string sourceFormat = "plain")
+    /// <summary>Normalises already-plain text.</summary>
+    public static NormalizedBody Normalize(string text, string sourceFormat = "plain")
     {
-        if (string.IsNullOrWhiteSpace(texto))
+        if (string.IsNullOrWhiteSpace(text))
         {
             return new NormalizedBody(string.Empty, string.Empty, [], 0, 0, sourceFormat);
         }
 
-        var lineas = Preparar(texto);
+        var lines = Prepare(text);
 
-        var (sinCitas, citasFuera) = QuitarCitas(lineas);
-        var (sinFirma, firmaFuera) = QuitarFirma(sinCitas);
+        var (withoutQuotes, quotesRemoved) = StripQuotes(lines);
+        var (withoutSignature, signatureRemoved) = StripSignature(withoutQuotes);
 
-        var limpio = Colapsar(string.Join('\n', sinFirma));
-        var parrafos = limpio
+        var clean = Collapse(string.Join('\n', withoutSignature));
+        var paragraphs = clean
             .Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToArray();
 
-        return new NormalizedBody(limpio, Previsualizar(limpio), parrafos, citasFuera, firmaFuera, sourceFormat);
+        return new NormalizedBody(clean, Preview(clean), paragraphs, quotesRemoved, signatureRemoved, sourceFormat);
     }
 
-    /// <summary>Saltos de linea unificados y basura invisible fuera.</summary>
-    private static List<string> Preparar(string texto)
+    /// <summary>Unified line endings, invisible junk removed.</summary>
+    private static List<string> Prepare(string text)
     {
-        var sb = new StringBuilder(texto.Length);
+        var sb = new StringBuilder(text.Length);
 
-        foreach (var c in texto.Replace("\r\n", "\n").Replace('\r', '\n'))
+        foreach (var c in text.Replace("\r\n", "\n").Replace('\r', '\n'))
         {
             switch (c)
             {
-                // Espacios que no son el espacio normal: pasan a espacio para que
-                // las expresiones regulares y el recorte funcionen.
-                case '\u00a0' or '\u2007' or '\u2009' or '\u202f' or '\u2002' or '\u2003':
+                // Spaces that are not the ordinary space: turned into one, so the
+                // regexes and the trimming behave.
+                case ' ' or ' ' or ' ' or ' ' or ' ' or ' ':
                     sb.Append(' ');
                     break;
 
-                // Invisibles que solo estorban. Ojo: ‍ (ZWJ) NO entra aqui,
-                // porque es lo que mantiene unidos los emoji compuestos.
-                case '\u200b' or '\u200c' or '\ufeff' or '\u00ad':
+                // Invisible characters that only get in the way. Note that ‍
+                // (ZWJ) is NOT here: it is what holds composed emoji together.
+                case '​' or '‌' or '﻿' or '­':
                     break;
 
                 default:
@@ -286,183 +286,183 @@ public static partial class BodyNormalizer
     }
 
     /// <summary>
-    /// Corta en la primera atribucion de cita y descarta las lineas con "&gt;".
-    /// Todo lo que va despues de "El X escribio:" es el hilo anterior, no texto nuevo.
+    /// Cuts at the first quote attribution and drops lines starting with "&gt;".
+    /// Everything after "El X escribio:" is the previous thread, not new text.
     /// </summary>
-    private static (List<string> Lineas, int Quitadas) QuitarCitas(List<string> lineas)
+    private static (List<string> Lines, int Removed) StripQuotes(List<string> lines)
     {
-        var corte = -1;
+        var cut = -1;
 
-        for (var i = 0; i < lineas.Count; i++)
+        for (var i = 0; i < lines.Count; i++)
         {
-            if (SeparadorOriginal().IsMatch(lineas[i]) || SeparadorOutlook().IsMatch(lineas[i]))
+            if (OriginalMessageSeparator().IsMatch(lines[i]) || OutlookSeparator().IsMatch(lines[i]))
             {
-                corte = i;
+                cut = i;
                 break;
             }
 
-            // Ventanas de 1, 2 y 3 lineas unidas: los clientes parten la atribucion
-            // por el ancho, pero el patron termina en ":" y ese ancla solo cae donde
-            // la ventana acaba justo ahi. Probar solo la de 3 no casaria nunca con
-            // una atribucion que ocupa una sola linea.
-            var encontrada = false;
-            for (var k = 1; k <= 3 && i + k <= lineas.Count; k++)
+            // Windows of 1, 2 and 3 joined lines: clients wrap the attribution, but
+            // the pattern ends in ":" and that anchor only matches where the window
+            // ends exactly there. Testing only the 3-line window would never match a
+            // single-line attribution.
+            var found = false;
+            for (var k = 1; k <= 3 && i + k <= lines.Count; k++)
             {
-                var ventana = string.Join(' ', lineas.GetRange(i, k)).Trim();
-                if (ventana.Length > 0 &&
-                    (AtribucionConVerbo().IsMatch(ventana) || CabeceraIncrustada().IsMatch(ventana)))
+                var window = string.Join(' ', lines.GetRange(i, k)).Trim();
+                if (window.Length > 0 &&
+                    (AttributionWithVerb().IsMatch(window) || EmbeddedHeaderBlock().IsMatch(window)))
                 {
-                    encontrada = true;
+                    found = true;
                     break;
                 }
             }
 
-            if (encontrada)
+            if (found)
             {
-                corte = i;
+                cut = i;
                 break;
             }
         }
 
-        var cuerpo = corte >= 0 ? lineas.Take(corte).ToList() : lineas;
-        var quitadas = corte >= 0 ? lineas.Count - corte : 0;
+        var body = cut >= 0 ? lines.Take(cut).ToList() : lines;
+        var removed = cut >= 0 ? lines.Count - cut : 0;
 
-        // Lineas citadas sueltas (respuesta intercalada, o un reenvio sin atribucion).
-        var resultado = new List<string>(cuerpo.Count);
-        foreach (var linea in cuerpo)
+        // Stray quoted lines (an inline reply, or a forward with no attribution).
+        var result = new List<string>(body.Count);
+        foreach (var line in body)
         {
-            if (linea.TrimStart().StartsWith('>'))
+            if (line.TrimStart().StartsWith('>'))
             {
-                quitadas++;
+                removed++;
                 continue;
             }
-            resultado.Add(linea);
+            result.Add(line);
         }
 
-        return (resultado, quitadas);
+        return (result, removed);
     }
 
     /// <summary>
-    /// Quita la firma. Por orden de fiabilidad: el delimitador estandar "-- " de la
-    /// RFC 3676, los marcadores explicitos, el descargo legal, y como ultimo recurso
-    /// un bloque de contacto al final. El ultimo es el unico heuristico de verdad, y
-    /// por eso exige varias senales antes de borrar nada.
+    /// Strips the signature. In order of reliability: the RFC 3676 "-- " delimiter,
+    /// explicit markers, the legal disclaimer, and as a last resort a contact block at
+    /// the end. The last one is the only real heuristic, which is why it requires
+    /// several signals before deleting anything.
     /// </summary>
-    private static (List<string> Lineas, int Quitadas) QuitarFirma(List<string> lineas)
+    private static (List<string> Lines, int Removed) StripSignature(List<string> lines)
     {
-        if (lineas.Count == 0)
+        if (lines.Count == 0)
         {
-            return (lineas, 0);
+            return (lines, 0);
         }
 
-        // 1. Delimitador estandar.
-        for (var i = 0; i < lineas.Count; i++)
+        // 1. Standard delimiter.
+        for (var i = 0; i < lines.Count; i++)
         {
-            if (lineas[i].TrimEnd() == "--" || lineas[i] == "-- ")
+            if (lines[i].TrimEnd() == "--" || lines[i] == "-- ")
             {
-                return (lineas.Take(i).ToList(), lineas.Count - i);
+                return (lines.Take(i).ToList(), lines.Count - i);
             }
         }
 
-        // 2. Marcadores explicitos y descargos legales, solo en el ultimo tercio:
-        // la palabra "confidencial" en el primer parrafo es contenido, no firma.
-        var desdeTercio = Math.Max(1, lineas.Count * 2 / 3);
-        for (var i = desdeTercio; i < lineas.Count; i++)
+        // 2. Explicit markers and legal disclaimers, only in the last third: the word
+        // "confidencial" in the first paragraph is content, not a signature.
+        var lastThird = Math.Max(1, lines.Count * 2 / 3);
+        for (var i = lastThird; i < lines.Count; i++)
         {
-            if (FirmaMovil().IsMatch(lineas[i]) || Descargo().IsMatch(lineas[i]))
+            if (MobileSignature().IsMatch(lines[i]) || LegalDisclaimer().IsMatch(lines[i]))
             {
-                return (lineas.Take(i).ToList(), lineas.Count - i);
+                return (lines.Take(i).ToList(), lines.Count - i);
             }
         }
 
-        // 3. Bloque de contacto al final: hasta 8 lineas cortas con al menos dos
-        // senales de contacto (telefono, correo, enlace, etiqueta tipo "Tel.").
-        var inicio = -1;
-        var senales = 0;
-        var limite = Math.Max(0, lineas.Count - 8);
+        // 3. Contact block at the end: up to 8 short lines with at least two contact
+        // signals (phone, email, link, a label such as "Tel.").
+        var start = -1;
+        var signals = 0;
+        var limit = Math.Max(0, lines.Count - 8);
 
-        for (var i = lineas.Count - 1; i >= limite; i--)
+        for (var i = lines.Count - 1; i >= limit; i--)
         {
-            var linea = lineas[i];
+            var line = lines[i];
 
-            if (string.IsNullOrWhiteSpace(linea))
+            if (string.IsNullOrWhiteSpace(line))
             {
                 continue;
             }
 
-            // Una linea larga es prosa, no una linea de firma.
-            if (linea.Length > 70)
+            // A long line is prose, not a signature line.
+            if (line.Length > 70)
             {
                 break;
             }
 
-            var tiene = (Telefono().IsMatch(linea) ? 1 : 0)
-                + (Correo().IsMatch(linea) ? 1 : 0)
-                + (Enlace().IsMatch(linea) ? 1 : 0)
-                + (EtiquetaContacto().IsMatch(linea) ? 1 : 0);
+            var hits = (PhoneNumber().IsMatch(line) ? 1 : 0)
+                + (EmailAddress().IsMatch(line) ? 1 : 0)
+                + (Link().IsMatch(line) ? 1 : 0)
+                + (ContactLabel().IsMatch(line) ? 1 : 0);
 
-            if (tiene > 0)
+            if (hits > 0)
             {
-                senales += tiene;
-                inicio = i;
+                signals += hits;
+                start = i;
                 continue;
             }
 
-            // Linea corta sin senales: puede ser el nombre que encabeza la firma,
-            // pero solo la aceptamos si ya hemos visto senales por debajo.
-            if (inicio >= 0 && linea.Length <= 40)
+            // A short line with no signals could be the name heading the signature,
+            // but it is only accepted once signals have been seen below it.
+            if (start >= 0 && line.Length <= 40)
             {
-                inicio = i;
+                start = i;
                 continue;
             }
 
             break;
         }
 
-        // Exigir dos senales y no quedarnos sin mensaje: si la firma empezara en la
-        // primera linea, lo que tenemos no es una firma, es el correo entero.
-        if (inicio > 0 && senales >= 2)
+        // Require two signals, and never consume the whole message: if the signature
+        // started on the first line, what we have is not a signature, it is the mail.
+        if (start > 0 && signals >= 2)
         {
-            return (lineas.Take(inicio).ToList(), lineas.Count - inicio);
+            return (lines.Take(start).ToList(), lines.Count - start);
         }
 
-        return (lineas, 0);
+        return (lines, 0);
     }
 
-    private static string Colapsar(string texto)
+    private static string Collapse(string text)
     {
-        var sinEspacios = EspaciosSeguidos().Replace(texto, " ");
-        var lineas = sinEspacios.Split('\n').Select(l => l.Trim());
-        var unido = string.Join('\n', lineas);
-        return LineasVaciasSeguidas().Replace(unido, "\n\n").Trim();
+        var withoutSpaces = RepeatedSpaces().Replace(text, " ");
+        var lines = withoutSpaces.Split('\n').Select(l => l.Trim());
+        var joined = string.Join('\n', lines);
+        return RepeatedBlankLines().Replace(joined, "\n\n").Trim();
     }
 
-    private static string Previsualizar(string limpio)
+    private static string Preview(string clean)
     {
-        if (limpio.Length == 0)
+        if (clean.Length == 0)
         {
             return string.Empty;
         }
 
-        var unaLinea = EspaciosSeguidos().Replace(limpio.Replace('\n', ' '), " ").Trim();
+        var oneLine = RepeatedSpaces().Replace(clean.Replace('\n', ' '), " ").Trim();
 
-        if (unaLinea.Length <= PreviewLength)
+        if (oneLine.Length <= PreviewLength)
         {
-            return unaLinea;
+            return oneLine;
         }
 
-        // Cortar por palabra, no por carácter, y sin partir un par subrogado
-        // (un emoji al filo de los 140 saldria como un rombo con interrogacion).
-        var corte = unaLinea.LastIndexOf(' ', Math.Min(PreviewLength, unaLinea.Length - 1));
-        if (corte < PreviewLength / 2)
+        // Cut on a word, not on a character, and never split a surrogate pair: an
+        // emoji right at the 140 mark would come out as a replacement glyph.
+        var cut = oneLine.LastIndexOf(' ', Math.Min(PreviewLength, oneLine.Length - 1));
+        if (cut < PreviewLength / 2)
         {
-            corte = PreviewLength;
-            while (corte > 0 && char.IsHighSurrogate(unaLinea[corte - 1]))
+            cut = PreviewLength;
+            while (cut > 0 && char.IsHighSurrogate(oneLine[cut - 1]))
             {
-                corte--;
+                cut--;
             }
         }
 
-        return string.Concat(unaLinea.AsSpan(0, corte).TrimEnd(), "...");
+        return string.Concat(oneLine.AsSpan(0, cut).TrimEnd(), "...");
     }
 }

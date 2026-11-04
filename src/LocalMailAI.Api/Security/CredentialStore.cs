@@ -4,136 +4,137 @@ using System.Text;
 namespace LocalMailAI.Api.Security;
 
 /// <summary>
-/// Almacen de contrasenas cifrado con DPAPI (BACKEND.md §1, regla 2).
+/// Password storage encrypted with DPAPI (BACKEND.md §1, rule 2).
 ///
-/// La regla es literal: "Credenciales en el almacen del sistema operativo. Nunca en
-/// appsettings.json, nunca en la base de datos, nunca en texto plano."
+/// The rule is literal: "Credentials in the operating system store. Never in
+/// appsettings.json, never in the database, never in plain text."
 ///
-/// DPAPI con ambito de usuario significa que el blob cifrado solo se puede descifrar
-/// desde la sesion de Windows de ESA persona en ESE equipo. Copiar el fichero a otro
-/// ordenador, o abrirlo desde otra cuenta del mismo ordenador, no sirve de nada. Lo que
-/// se guarda en la base de datos es solo la CLAVE con la que localizar el blob
-/// (<c>accounts.credential_key</c>), nunca la contrasena.
+/// DPAPI at user scope means the encrypted blob can only be decrypted from THAT
+/// person's Windows session on THAT machine. Copying the file to another computer, or
+/// opening it from another account on the same computer, gets you nothing. What the
+/// database stores is only the KEY used to locate the blob
+/// (<c>accounts.credential_key</c>), never the password itself.
 ///
-/// Consecuencia a tener presente: si el usuario pierde su perfil de Windows, el blob
-/// deja de poder descifrarse. No es un fallo, es el precio de no tener una clave maestra
-/// guardada en algun sitio; y la solucion correcta es volver a dar de alta la cuenta, no
-/// guardar la contrasena en un sitio menos seguro.
+/// Consequence worth knowing: if the user loses their Windows profile, the blob can no
+/// longer be decrypted. That is not a bug, it is the price of not keeping a master key
+/// somewhere; the correct fix is to register the account again, not to store the
+/// password somewhere less safe.
 /// </summary>
 public sealed class CredentialStore
 {
-    private readonly string _directorio;
+    private readonly string _directory;
 
     public CredentialStore(IConfiguration config)
     {
-        var configurado = config["Credentials:Path"];
+        var configured = config["Credentials:Path"];
 
-        _directorio = !string.IsNullOrWhiteSpace(configurado)
-            ? Path.GetFullPath(configurado)
+        _directory = !string.IsNullOrWhiteSpace(configured)
+            ? Path.GetFullPath(configured)
             : Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "LocalMailAI",
                 "credentials");
     }
 
-    public string Directory => _directorio;
+    public string Directory => _directory;
 
-    /// <summary>Clave estable para una cuenta. No contiene la contrasena, solo identifica el blob.</summary>
+    /// <summary>
+    /// Stable key for an account. Contains no password, and does not contain the
+    /// address either: the file name ends up on disk and can show up in a screenshot
+    /// or a backup.
+    /// </summary>
     public static string KeyFor(string email) =>
         "imap-" + Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(email.Trim().ToLowerInvariant())))[..16];
 
-    public void Save(string key, string secreto)
+    public void Save(string key, string secret)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        ArgumentNullException.ThrowIfNull(secreto);
+        ArgumentNullException.ThrowIfNull(secret);
 
-        System.IO.Directory.CreateDirectory(_directorio);
+        System.IO.Directory.CreateDirectory(_directory);
 
         if (!OperatingSystem.IsWindows())
         {
-            // Fuera de Windows no hay DPAPI. Antes que guardar la contrasena en claro
-            // sin que nadie se entere, se falla: el usuario tiene derecho a saber que
-            // su credencial no estaria protegida.
+            // There is no DPAPI outside Windows. Rather than quietly writing the
+            // password in the clear, fail: the user is entitled to know their
+            // credential would not be protected.
             throw new PlatformNotSupportedException(
-                "el almacen de credenciales usa DPAPI y solo funciona en Windows. " +
-                "En otros sistemas hay que integrar su llavero antes de guardar nada.");
+                "the credential store uses DPAPI and only works on Windows. " +
+                "On other systems their keyring must be integrated before storing anything.");
         }
 
-        var cifrado = ProtectedData.Protect(
-            Encoding.UTF8.GetBytes(secreto),
-            optionalEntropy: Entropia(key),
+        var encrypted = ProtectedData.Protect(
+            Encoding.UTF8.GetBytes(secret),
+            optionalEntropy: EntropyFor(key),
             scope: DataProtectionScope.CurrentUser);
 
-        var ruta = RutaDe(key);
-        File.WriteAllBytes(ruta, cifrado);
+        var path = PathFor(key);
+        File.WriteAllBytes(path, encrypted);
 
-        // Permisos del fichero: solo el usuario actual. En Windows el directorio de
-        // LOCALAPPDATA ya lo es, pero dejarlo explicito evita sorpresas si alguien
-        // cambia la ruta por configuracion.
         try
         {
-            var info = new FileInfo(ruta);
+            var info = new FileInfo(path);
             info.Attributes |= FileAttributes.NotContentIndexed;
         }
         catch (IOException)
         {
-            // Un atributo que no se puede poner no justifica abortar el alta.
+            // An attribute that cannot be set is no reason to abort the registration.
         }
     }
 
-    /// <summary>Devuelve la contrasena, o null si no esta guardada.</summary>
+    /// <summary>Returns the password, or null if it is not stored.</summary>
     public string? TryRead(string key)
     {
-        var ruta = RutaDe(key);
+        var path = PathFor(key);
 
-        if (!File.Exists(ruta))
+        if (!File.Exists(path))
         {
             return null;
         }
 
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("el almacen de credenciales usa DPAPI y solo funciona en Windows");
+            throw new PlatformNotSupportedException("the credential store uses DPAPI and only works on Windows");
         }
 
         try
         {
-            var claro = ProtectedData.Unprotect(
-                File.ReadAllBytes(ruta),
-                optionalEntropy: Entropia(key),
+            var plain = ProtectedData.Unprotect(
+                File.ReadAllBytes(path),
+                optionalEntropy: EntropyFor(key),
                 scope: DataProtectionScope.CurrentUser);
 
-            return Encoding.UTF8.GetString(claro);
+            return Encoding.UTF8.GetString(plain);
         }
         catch (CryptographicException)
         {
-            // Blob de otro usuario o de otra maquina. No es recuperable y conviene
-            // decirlo con claridad en vez de devolver una contrasena vacia que
-            // fallaria luego como "autenticacion rechazada".
+            // A blob from another user or another machine. It is not recoverable, and
+            // saying so clearly beats returning an empty password that would later
+            // surface as "authentication rejected".
             return null;
         }
     }
 
     public bool Delete(string key)
     {
-        var ruta = RutaDe(key);
+        var path = PathFor(key);
 
-        if (!File.Exists(ruta))
+        if (!File.Exists(path))
         {
             return false;
         }
 
-        File.Delete(ruta);
+        File.Delete(path);
         return true;
     }
 
-    private string RutaDe(string key) => Path.Combine(_directorio, key + ".bin");
+    private string PathFor(string key) => Path.Combine(_directory, key + ".bin");
 
     /// <summary>
-    /// Entropia adicional ligada a la clave: dos cuentas distintas producen blobs que
-    /// no son intercambiables aunque alguien renombre los ficheros.
+    /// Extra entropy bound to the key, so two different accounts produce blobs that
+    /// are not interchangeable even if someone renames the files.
     /// </summary>
-    private static byte[] Entropia(string key) =>
+    private static byte[] EntropyFor(string key) =>
         SHA256.HashData(Encoding.UTF8.GetBytes("LocalMailAI/" + key));
 }

@@ -8,23 +8,23 @@ using LocalMailAI.Api.Classification;
 namespace LocalMailAI.Api.Data;
 
 /// <summary>
-/// Lectura de correos para la API (BACKEND.md §3). SQL explicito con Dapper, nada de
-/// un ORM que decida por su cuenta que consulta lanza.
+/// Read side of the API (BACKEND.md §3). Explicit SQL with Dapper, no ORM deciding on
+/// its own which query to run.
 ///
-/// Un correo por debajo de UMBRAL_CONFIANZA no pertenece a su bucket: pertenece al
-/// cajon "duda". La regla esta escrita UNA vez y la usan tanto el filtro por bucket
-/// como los contadores. Si cada uno la aplicara a su manera, los numeros de los tiles
-/// no cuadrarian con las listas que esos tiles abren, y encima la paginacion se
-/// rompria: una pagina de 50 se quedaria en 43 al filtrar en el cliente.
+/// A message below UMBRAL_CONFIANZA does not belong to its bucket: it belongs to the
+/// "duda" bucket. That rule is written ONCE and used by both the bucket filter and the
+/// counts. If each applied it separately, the tile numbers would not match the lists
+/// those tiles open, and paging would break on top of that: a page of 50 would come
+/// back as 43 after filtering client-side.
 /// </summary>
 public sealed class EmailRepository(Database db)
 {
     private const int MaxLimit = 200;
 
-    // Una sola consulta con LEFT JOIN: extracted, summary y la clasificacion pueden
-    // no existir todavia -el pipeline las rellena despues (§5)- y el correo tiene que
-    // poder servirse igual, con lo que haya.
-    private const string Seleccion = """
+    // One query with LEFT JOINs: extraction, summary and classification may not exist
+    // yet - the pipeline fills them in later (§5) - and the message still has to be
+    // servable with whatever is available.
+    private const string Selection = """
         SELECT  e.id            AS Id,
                 e.from_name     AS FromName,
                 e.from_email    AS FromEmail,
@@ -43,7 +43,7 @@ public sealed class EmailRepository(Database db)
                 s.summary       AS Summary,
                 (SELECT COUNT(*) FROM emails e2
                   WHERE e2.thread_id = e.thread_id
-                    AND e2.account_id = e.account_id) AS ThreadCount   -- acotado por cuenta: un hilo que llega a dos buzones no se cuenta dos veces
+                    AND e2.account_id = e.account_id) AS ThreadCount   -- scoped by account: a thread reaching two mailboxes is not counted twice
         FROM emails e
         LEFT JOIN email_text      t ON t.email_id  = e.id
         LEFT JOIN classifications c ON c.email_id  = e.id
@@ -51,7 +51,7 @@ public sealed class EmailRepository(Database db)
         LEFT JOIN summaries       s ON s.thread_id = e.thread_id
         """;
 
-    private sealed class Fila
+    private sealed class Row
     {
         public string Id { get; init; } = string.Empty;
         public string? FromName { get; init; }
@@ -73,48 +73,48 @@ public sealed class EmailRepository(Database db)
     }
 
     /// <summary>
-    /// Recuentos para los tiles de la pantalla principal. Una sola consulta: el front
-    /// los pide en cada carga y pedir los cinco cajones enteros para pintar cinco
-    /// numeros seria absurdo.
+    /// Counts for the tiles on the main screen. A single query: the frontend asks for
+    /// them on every load, and fetching five whole buckets to paint five numbers would
+    /// be absurd.
     ///
-    /// Un correo por debajo del umbral cuenta en "duda" y NO en su bucket. Si contara
-    /// en los dos, la suma de los tiles no daria el total y el usuario veria numeros
-    /// que no cuadran.
+    /// A message below the threshold counts in "duda" and NOT in its bucket. Counting
+    /// it in both would mean the tiles do not sum to the total and the user sees
+    /// numbers that do not add up.
     /// </summary>
     public async Task<CountsDto> CountsAsync()
     {
         using var cn = db.Open();
 
-        // SUM() en SQLite es INTEGER y llega como long: se lee en una fila propia y
-        // se convierte, en vez de declarar el DTO del contrato con long.
-        var fila = await cn.QuerySingleAsync<FilaCounts>(
+        // SUM() in SQLite is INTEGER and arrives as long, so it is read into a row
+        // type of its own and converted, rather than declaring the contract DTO long.
+        var row = await cn.QuerySingleAsync<CountsRow>(
             """
-            -- COUNT y no SUM: SUM sobre cero filas devuelve NULL, y una bandeja
-            -- vacia es el estado de toda instalacion nueva.
+            -- COUNT and not SUM: SUM over zero rows returns NULL, and an empty inbox
+            -- is the state of every fresh installation.
             SELECT
-              COUNT(CASE WHEN c.confidence >= @umbral AND c.bucket = 'responder'    THEN 1 END) AS Responder,
-              COUNT(CASE WHEN c.confidence >= @umbral AND c.bucket = 'informativo'  THEN 1 END) AS Informativo,
-              COUNT(CASE WHEN c.confidence >= @umbral AND c.bucket = 'automatizado' THEN 1 END) AS Automatizado,
-              COUNT(CASE WHEN c.confidence >= @umbral AND c.bucket = 'ruido'        THEN 1 END) AS Ruido,
-              -- Sin clasificar todavia tambien es duda: el pipeline aun no ha llegado
-              -- a ese correo y afirmar un bucket seria inventarselo.
-              COUNT(CASE WHEN c.bucket IS NULL OR c.confidence < @umbral            THEN 1 END) AS Duda,
-              COUNT(CASE WHEN e.unread <> 0                                         THEN 1 END) AS Unread
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'responder'    THEN 1 END) AS Responder,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'informativo'  THEN 1 END) AS Informativo,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'automatizado' THEN 1 END) AS Automatizado,
+              COUNT(CASE WHEN c.confidence >= @threshold AND c.bucket = 'ruido'        THEN 1 END) AS Ruido,
+              -- Not yet classified also counts as doubt: the pipeline has not reached
+              -- that message and asserting a bucket would be making it up.
+              COUNT(CASE WHEN c.bucket IS NULL OR c.confidence < @threshold            THEN 1 END) AS Duda,
+              COUNT(CASE WHEN e.unread <> 0                                            THEN 1 END) AS Unread
             FROM emails e
             LEFT JOIN classifications c ON c.email_id = e.id
             """,
-            new { umbral = SignalBaseline.ConfidenceThreshold });
+            new { threshold = SignalBaseline.ConfidenceThreshold });
 
         return new CountsDto(
-            (int)fila.Responder,
-            (int)fila.Informativo,
-            (int)fila.Automatizado,
-            (int)fila.Ruido,
-            (int)fila.Duda,
-            (int)fila.Unread);
+            (int)row.Responder,
+            (int)row.Informativo,
+            (int)row.Automatizado,
+            (int)row.Ruido,
+            (int)row.Duda,
+            (int)row.Unread);
     }
 
-    private sealed record FilaCounts(
+    private sealed record CountsRow(
         long Responder,
         long Informativo,
         long Automatizado,
@@ -123,37 +123,37 @@ public sealed class EmailRepository(Database db)
         long Unread);
 
     /// <summary>
-    /// Marca leido o no leido. Devuelve el correo ya actualizado, que es lo que el
-    /// front necesita para repintar la fila sin volver a pedirlo.
+    /// Marks a message read or unread. Returns the updated message, which is what the
+    /// frontend needs to repaint the row without asking again.
     ///
-    /// Marcar leido por primera vez incrementa <c>sender_stats.opened</c>, y eso NO es
-    /// un detalle de contabilidad: es la senal que distingue "automatizado" de "ruido"
-    /// (§6). Las dos son maquinas y llevan las mismas cabeceras; lo que las separa es
-    /// si el usuario las abre. Cada correo que abre mejora ese triage.
+    /// Marking read for the first time increments <c>sender_stats.opened</c>, and that
+    /// is NOT bookkeeping: it is the signal separating "automatizado" from "ruido"
+    /// (§6). Both are machines carrying the same headers; what tells them apart is
+    /// whether the user opens them. Every message opened improves the triage.
     /// </summary>
-    public async Task<EmailDto?> SetUnreadAsync(string id, bool unread, DateTimeOffset ahora)
+    public async Task<EmailDto?> SetUnreadAsync(string id, bool unread, DateTimeOffset now)
     {
         using var cn = db.Open();
         using var tx = cn.BeginTransaction();
 
-        var estadoPrevio = await cn.QuerySingleOrDefaultAsync<long?>(
+        var previousState = await cn.QuerySingleOrDefaultAsync<long?>(
             "SELECT unread FROM emails WHERE id = @id", new { id }, tx);
 
-        if (estadoPrevio is null)
+        if (previousState is null)
         {
             tx.Rollback();
             return null;
         }
 
-        var eraNoLeido = estadoPrevio.Value != 0;
+        var wasUnread = previousState.Value != 0;
 
         await cn.ExecuteAsync(
-            "UPDATE emails SET unread = @valor WHERE id = @id",
-            new { id, valor = unread ? 1 : 0 }, tx);
+            "UPDATE emails SET unread = @value WHERE id = @id",
+            new { id, value = unread ? 1 : 0 }, tx);
 
-        // Solo al pasar de no leido a leido, y solo una vez: abrir el mismo correo
-        // diez veces no lo hace diez veces mas interesante.
-        if (eraNoLeido && !unread)
+        // Only on the transition from unread to read, and only once: opening the same
+        // message ten times does not make it ten times more interesting.
+        if (wasUnread && !unread)
         {
             await cn.ExecuteAsync(
                 """
@@ -168,23 +168,23 @@ public sealed class EmailRepository(Database db)
 
         tx.Commit();
 
-        return await GetAsync(id, ahora);
+        return await GetAsync(id, now);
     }
 
-    public async Task<EmailPageDto> ListAsync(string? bucket, int limit, string? cursor, DateTimeOffset ahora)
+    public async Task<EmailPageDto> ListAsync(string? bucket, int limit, string? cursor, DateTimeOffset now)
     {
         limit = Math.Clamp(limit, 1, MaxLimit);
 
         var (cursorDate, cursorId) = DecodeCursor(cursor);
 
-        // Se pide una fila mas de las necesarias: si llega, hay pagina siguiente, y
-        // asi no hace falta un COUNT aparte sobre toda la tabla.
+        // One row more than needed is requested: if it arrives there is a next page,
+        // which avoids a separate COUNT over the whole table.
         var sql = $"""
-            {Seleccion}
+            {Selection}
             WHERE (
                         @bucket IS NULL
-                     OR (@bucket = 'duda' AND (c.bucket IS NULL OR c.confidence < @umbral))
-                     OR (@bucket <> 'duda' AND c.bucket = @bucket AND c.confidence >= @umbral)
+                     OR (@bucket = 'duda' AND (c.bucket IS NULL OR c.confidence < @threshold))
+                     OR (@bucket <> 'duda' AND c.bucket = @bucket AND c.confidence >= @threshold)
                   )
               AND (@cursorDate IS NULL OR (e.date_utc, e.id) < (@cursorDate, @cursorId))
             ORDER BY e.date_utc DESC, e.id DESC
@@ -192,75 +192,76 @@ public sealed class EmailRepository(Database db)
             """;
 
         using var cn = db.Open();
-        var filas = (await cn.QueryAsync<Fila>(sql, new
+        var rows = (await cn.QueryAsync<Row>(sql, new
         {
             bucket,
             cursorDate,
             cursorId,
             limit = limit + 1,
-            umbral = SignalBaseline.ConfidenceThreshold,
+            threshold = SignalBaseline.ConfidenceThreshold,
         })).ToList();
 
-        string? siguiente = null;
-        if (filas.Count > limit)
+        string? next = null;
+        if (rows.Count > limit)
         {
-            var ultima = filas[limit - 1];
-            siguiente = EncodeCursor(ultima.DateUtc, ultima.Id);
-            filas.RemoveRange(limit, filas.Count - limit);
+            var last = rows[limit - 1];
+            next = EncodeCursor(last.DateUtc, last.Id);
+            rows.RemoveRange(limit, rows.Count - limit);
         }
 
-        return new EmailPageDto([.. filas.Select(f => Mapear(f, ahora))], siguiente);
+        return new EmailPageDto([.. rows.Select(r => Map(r, now))], next);
     }
 
-    public async Task<EmailDto?> GetAsync(string id, DateTimeOffset ahora)
+    public async Task<EmailDto?> GetAsync(string id, DateTimeOffset now)
     {
         using var cn = db.Open();
-        var fila = await cn.QuerySingleOrDefaultAsync<Fila>(
-            $"{Seleccion}\nWHERE e.id = @id", new { id });
+        var row = await cn.QuerySingleOrDefaultAsync<Row>(
+            $"{Selection}\nWHERE e.id = @id", new { id });
 
-        return fila is null ? null : Mapear(fila, ahora);
+        return row is null ? null : Map(row, now);
     }
 
-    private static EmailDto Mapear(Fila f, DateTimeOffset ahora)
+    private static EmailDto Map(Row r, DateTimeOffset now)
     {
-        var fecha = DateTimeOffset.Parse(f.DateUtc, null, DateTimeStyles.RoundtripKind);
+        var date = DateTimeOffset.Parse(r.DateUtc, null, DateTimeStyles.RoundtripKind);
 
-        var senales = string.IsNullOrWhiteSpace(f.SignalsJson)
+        var signals = string.IsNullOrWhiteSpace(r.SignalsJson)
             ? []
-            : JsonSerializer.Deserialize<SignalDto[]>(f.SignalsJson) ?? [];
+            : JsonSerializer.Deserialize<SignalDto[]>(r.SignalsJson) ?? [];
 
-        var cuerpo = string.IsNullOrWhiteSpace(f.BodyClean)
+        var body = string.IsNullOrWhiteSpace(r.BodyClean)
             ? []
-            : f.BodyClean.Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            : r.BodyClean.Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         return new EmailDto
         {
-            Id = f.Id,
-            From = new MailboxDto(f.FromName ?? f.FromEmail, f.FromEmail),
-            Subject = f.Subject ?? "(sin asunto)",
-            Preview = f.Preview ?? string.Empty,
-            Body = cuerpo,
-            Time = RelativeTime.Format(fecha, ahora),
+            Id = r.Id,
+            From = new MailboxDto(r.FromName ?? r.FromEmail, r.FromEmail),
+            Subject = r.Subject ?? "(sin asunto)",
+            Preview = r.Preview ?? string.Empty,
+            Body = body,
+            Time = RelativeTime.Format(date, now),
 
-            // Un correo sin clasificar todavia sale como informativo con confianza 0:
-            // el front lo mandara a "No estoy seguro" por estar bajo el umbral, que es
-            // exactamente lo que queremos decir mientras el pipeline no ha llegado.
-            Bucket = f.Bucket ?? "informativo",
-            Confidence = f.Confidence ?? 0,
-            Signals = senales,
+            // A message that is not classified yet comes out as informativo with
+            // confidence 0: the frontend routes it to "not sure" because it is below
+            // the threshold, which is exactly what we mean while the pipeline has not
+            // reached it.
+            Bucket = r.Bucket ?? "informativo",
+            Confidence = r.Confidence ?? 0,
+            Signals = signals,
 
-            ThreadCount = (int)f.ThreadCount,
-            Unread = f.Unread != 0,
-            Extracted = f.Accion is null ? null : new ExtractedDto(f.Accion, f.Urgencia ?? "media", f.FechaLimite),
+            ThreadCount = (int)r.ThreadCount,
+            Unread = r.Unread != 0,
+            Extracted = r.Accion is null ? null : new ExtractedDto(r.Accion, r.Urgencia ?? "media", r.FechaLimite),
 
-            // §5: el resumen solo tiene sentido en hilos largos.
-            Summary = f.ThreadCount >= 3 ? f.Summary : null,
+            // §5: a summary only makes sense on long threads.
+            Summary = r.ThreadCount >= 3 ? r.Summary : null,
         };
     }
 
-    // El cursor es opaco para el cliente (§3) pero legible para nosotros: la fecha y
-    // el id de la ultima fila servida. Sin el id, dos correos con la misma fecha
-    // harian que la paginacion se saltara uno o repitiera otro.
+    // The cursor is opaque to the client (§3) but readable to us: the date and id of
+    // the last row served. Without the id, two messages sharing a date would make
+    // paging skip one or repeat another.
     private static string EncodeCursor(string dateUtc, string id) =>
         Convert.ToBase64String(Encoding.UTF8.GetBytes($"{dateUtc}|{id}"));
 
@@ -273,14 +274,14 @@ public sealed class EmailRepository(Database db)
 
         try
         {
-            var plano = Encoding.UTF8.GetString(Convert.FromBase64String(cursor));
-            var corte = plano.IndexOf('|');
-            return corte <= 0 ? (null, null) : (plano[..corte], plano[(corte + 1)..]);
+            var plain = Encoding.UTF8.GetString(Convert.FromBase64String(cursor));
+            var split = plain.IndexOf('|');
+            return split <= 0 ? (null, null) : (plain[..split], plain[(split + 1)..]);
         }
         catch (FormatException)
         {
-            // Cursor manipulado o de otra version: servir la primera pagina es mas
-            // util que devolver un error que el front no puede arreglar.
+            // A tampered cursor, or one from another version: serving the first page is
+            // more useful than an error the frontend cannot act on.
             return (null, null);
         }
     }

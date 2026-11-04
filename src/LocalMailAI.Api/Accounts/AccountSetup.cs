@@ -7,20 +7,20 @@ using MailKit.Security;
 namespace LocalMailAI.Api.Accounts;
 
 /// <summary>
-/// Alta interactiva de una cuenta IMAP (<c>--add-account</c>).
+/// Interactive IMAP account registration (<c>--add-account</c>).
 ///
-/// Existe como comando y no como endpoint a proposito: la contrasena no debe viajar
-/// por HTTP, ni aparecer en un log de peticiones, ni pasar por el navegador. Se teclea
-/// en la consola sin eco, se verifica contra el servidor, y se guarda cifrada con DPAPI.
+/// It is a command and not an endpoint on purpose: the password must not travel over
+/// HTTP, appear in a request log, or pass through the browser. It is typed into the
+/// console without echo, verified against the server, and stored encrypted with DPAPI.
 ///
-/// El orden importa: **primero se comprueba que las credenciales funcionan y solo
-/// despues se guardan**. Guardar antes dejaria al usuario con una cuenta dada de alta
-/// que falla en cada sincronizacion sin decirle por que.
+/// Order matters: **the credentials are checked first and only then stored**. Storing
+/// first would leave the user with a registered account that fails on every sync
+/// without telling them why.
 /// </summary>
 public static class AccountSetup
 {
-    /// <summary>Servidores conocidos, para no obligar a buscar el host a mano.</summary>
-    private static readonly Dictionary<string, (string Host, int Puerto)> Conocidos = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Known servers, so the user does not have to look up the host.</summary>
+    private static readonly Dictionary<string, (string Host, int Port)> Known = new(StringComparer.OrdinalIgnoreCase)
     {
         ["gmail.com"] = ("imap.gmail.com", 993),
         ["googlemail.com"] = ("imap.gmail.com", 993),
@@ -38,105 +38,105 @@ public static class AccountSetup
     public static async Task<int> RunAsync(WebApplication app)
     {
         var db = app.Services.GetRequiredService<Database>();
-        var credenciales = app.Services.GetRequiredService<CredentialStore>();
+        var credentials = app.Services.GetRequiredService<CredentialStore>();
 
         Console.WriteLine();
-        Console.WriteLine("  Alta de cuenta de correo en LocalMail AI");
-        Console.WriteLine("  ----------------------------------------");
+        Console.WriteLine("  Add a mail account to LocalMail AI");
+        Console.WriteLine("  ----------------------------------");
         Console.WriteLine();
-        Console.WriteLine("  Necesitas una CONTRASENA DE APLICACION, no la de tu cuenta.");
-        Console.WriteLine("  En Gmail: cuenta de Google > Seguridad > Verificacion en dos pasos >");
-        Console.WriteLine("  Contrasenas de aplicaciones. Son 16 letras.");
+        Console.WriteLine("  You need an APP PASSWORD, not your account password.");
+        Console.WriteLine("  Gmail: Google Account > Security > 2-Step Verification >");
+        Console.WriteLine("  App passwords. It is 16 letters.");
         Console.WriteLine();
-        Console.WriteLine("  La contrasena no se mostrara al teclearla, no se escribe en ningun");
-        Console.WriteLine("  fichero de texto y no sale por la API. Se cifra con DPAPI y solo la");
-        Console.WriteLine("  puede descifrar tu usuario de Windows en este equipo.");
+        Console.WriteLine("  The password is not shown as you type, is not written to any");
+        Console.WriteLine("  text file, and does not go through the API. It is encrypted with");
+        Console.WriteLine("  DPAPI and only your Windows user on this machine can decrypt it.");
         Console.WriteLine();
 
-        var email = Preguntar("  Direccion de correo");
+        var email = Ask("  Email address");
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
         {
-            Console.Error.WriteLine("  Eso no parece una direccion de correo.");
+            Console.Error.WriteLine("  That does not look like an email address.");
             return 2;
         }
 
         email = email.Trim().ToLowerInvariant();
-        var dominio = email.Split('@')[1];
+        var domain = email.Split('@')[1];
 
-        var (hostSugerido, puertoSugerido) = Conocidos.TryGetValue(dominio, out var conocido)
-            ? conocido
-            : ("imap." + dominio, 993);
+        var (suggestedHost, suggestedPort) = Known.TryGetValue(domain, out var known)
+            ? known
+            : ("imap." + domain, 993);
 
-        var host = Preguntar($"  Servidor IMAP [{hostSugerido}]");
-        host = string.IsNullOrWhiteSpace(host) ? hostSugerido : host.Trim();
+        var host = Ask($"  IMAP server [{suggestedHost}]");
+        host = string.IsNullOrWhiteSpace(host) ? suggestedHost : host.Trim();
 
-        var puertoTexto = Preguntar($"  Puerto [{puertoSugerido}]");
-        var puerto = string.IsNullOrWhiteSpace(puertoTexto) ? puertoSugerido : int.Parse(puertoTexto.Trim());
+        var portText = Ask($"  Port [{suggestedPort}]");
+        var port = string.IsNullOrWhiteSpace(portText) ? suggestedPort : int.Parse(portText.Trim());
 
-        var contrasena = PreguntarSinEco("  Contrasena de aplicacion");
-        if (string.IsNullOrWhiteSpace(contrasena))
+        var password = AskWithoutEcho("  App password");
+        if (string.IsNullOrWhiteSpace(password))
         {
-            Console.Error.WriteLine("  No has escrito nada.");
+            Console.Error.WriteLine("  Nothing entered.");
             return 2;
         }
 
-        // Gmail muestra la contrasena de aplicacion en grupos de cuatro. Mucha gente
-        // la copia con los espacios y el servidor la rechaza sin explicar por que.
-        var limpia = contrasena.Replace(" ", string.Empty);
-        if (limpia.Length != contrasena.Length)
+        // Gmail displays app passwords in groups of four. Many people copy them with
+        // the spaces and the server rejects them without explaining why.
+        var stripped = password.Replace(" ", string.Empty);
+        if (stripped.Length != password.Length)
         {
-            Console.WriteLine("  (quitados los espacios de la contrasena de aplicacion)");
-            contrasena = limpia;
+            Console.WriteLine("  (removed the spaces from the app password)");
+            password = stripped;
         }
 
-        // --- Verificar ANTES de guardar -------------------------------------------
+        // --- Verify BEFORE storing ------------------------------------------------
 
         Console.WriteLine();
-        Console.WriteLine($"  Conectando a {host}:{puerto}...");
+        Console.WriteLine($"  Connecting to {host}:{port}...");
 
-        string[] carpetas;
+        string[] folders;
         try
         {
-            carpetas = await VerificarAsync(host, puerto, email, contrasena);
+            folders = await VerifyAsync(host, port, email, password);
         }
         catch (AuthenticationException)
         {
             Console.Error.WriteLine();
-            Console.Error.WriteLine("  El servidor ha rechazado las credenciales.");
-            Console.Error.WriteLine("  Causas habituales, por orden de frecuencia:");
-            Console.Error.WriteLine("    - Has usado la contrasena normal en vez de una de aplicacion.");
-            Console.Error.WriteLine("    - La verificacion en dos pasos no esta activada (Gmail la exige");
-            Console.Error.WriteLine("      para poder crear contrasenas de aplicacion).");
-            Console.Error.WriteLine("    - El acceso IMAP esta desactivado en los ajustes del correo.");
+            Console.Error.WriteLine("  The server rejected the credentials.");
+            Console.Error.WriteLine("  Common causes, most frequent first:");
+            Console.Error.WriteLine("    - You used your normal password instead of an app password.");
+            Console.Error.WriteLine("    - Two-step verification is not enabled (Gmail requires it");
+            Console.Error.WriteLine("      before app passwords can be created).");
+            Console.Error.WriteLine("    - IMAP access is turned off in your mail settings.");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("  No se ha guardado nada.");
+            Console.Error.WriteLine("  Nothing was stored.");
             return 1;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine();
-            Console.Error.WriteLine($"  No se ha podido conectar: {ex.Message}");
-            Console.Error.WriteLine("  Comprueba el servidor, el puerto y tu conexion. No se ha guardado nada.");
+            Console.Error.WriteLine($"  Could not connect: {ex.Message}");
+            Console.Error.WriteLine("  Check the server, the port and your connection. Nothing was stored.");
             return 1;
         }
 
-        Console.WriteLine($"  Conexion correcta. {carpetas.Length} carpetas visibles.");
+        Console.WriteLine($"  Connected. {folders.Length} folders visible.");
 
-        var enviados = carpetas.FirstOrDefault(c =>
-            c.Contains("sent", StringComparison.OrdinalIgnoreCase) ||
-            c.Contains("enviado", StringComparison.OrdinalIgnoreCase));
+        var sent = folders.FirstOrDefault(f =>
+            f.Contains("sent", StringComparison.OrdinalIgnoreCase) ||
+            f.Contains("enviado", StringComparison.OrdinalIgnoreCase));
 
-        // La carpeta de Enviados es la fuente del arranque en frio (§7): sin ella, el
-        // sistema empieza sin ningun ejemplo y tres de los cinco cajones tardan mucho
-        // mas en significar algo.
-        Console.WriteLine(enviados is not null
-            ? $"  Carpeta de enviados detectada: {enviados}"
-            : "  AVISO: no encuentro la carpeta de enviados. El arranque en frio sera mas lento.");
+        // The Sent folder is the source of the cold start (§7): without it the system
+        // begins with no examples at all, and three of the five buckets take far
+        // longer to mean anything.
+        Console.WriteLine(sent is not null
+            ? $"  Sent folder detected: {sent}"
+            : "  WARNING: no sent folder found. The cold start will be slower.");
 
-        // --- Guardar --------------------------------------------------------------
+        // --- Store ----------------------------------------------------------------
 
         var key = CredentialStore.KeyFor(email);
-        credenciales.Save(key, contrasena);
+        credentials.Save(key, password);
 
         var id = Guid.NewGuid().ToString("n")[..12];
 
@@ -146,75 +146,75 @@ public static class AccountSetup
         await cn.ExecuteAsync(
             """
             INSERT INTO accounts (id, email, imap_host, imap_port, credential_key, created_at)
-            VALUES (@id, @email, @host, @puerto, @key, @ahora)
+            VALUES (@id, @email, @host, @port, @key, @now)
             ON CONFLICT(email) DO UPDATE SET
                 imap_host = @host,
-                imap_port = @puerto,
+                imap_port = @port,
                 credential_key = @key
             """,
-            new { id, email, host, puerto, key, ahora = DateTimeOffset.UtcNow.ToString("O") });
+            new { id, email, host, port, key, now = DateTimeOffset.UtcNow.ToString("O") });
 
         Console.WriteLine();
-        Console.WriteLine($"  Cuenta {email} dada de alta.");
-        Console.WriteLine($"  Contrasena cifrada en {credenciales.Directory}");
-        Console.WriteLine($"  Base de datos        {db.Path}");
+        Console.WriteLine($"  Account {email} registered.");
+        Console.WriteLine($"  Password encrypted in {credentials.Directory}");
+        Console.WriteLine($"  Database              {db.Path}");
         Console.WriteLine();
-        Console.WriteLine("  Siguiente paso: arranca el backend y sincroniza.");
+        Console.WriteLine("  Next: start the backend and sync.");
         Console.WriteLine();
 
         return 0;
     }
 
     /// <summary>
-    /// Conecta, autentica y lista carpetas. Es la prueba minima de que la cuenta sirve
-    /// para lo que el producto necesita: leer.
+    /// Connects, authenticates and lists folders. This is the minimum proof that the
+    /// account can do what the product needs: read.
     /// </summary>
-    private static async Task<string[]> VerificarAsync(string host, int puerto, string email, string contrasena)
+    private static async Task<string[]> VerifyAsync(string host, int port, string email, string password)
     {
-        using var cliente = new ImapClient();
+        using var client = new ImapClient();
 
-        // SslOnConnect para el 993 (IMAPS); StartTls para el 143. Sin cifrado no se
-        // conecta nunca: seria mandar la contrasena en claro por la red.
-        var opciones = puerto == 143 ? SecureSocketOptions.StartTls : SecureSocketOptions.SslOnConnect;
+        // SslOnConnect for 993 (IMAPS); StartTls for 143. It never connects without
+        // encryption: that would put the password on the wire in the clear.
+        var options = port == 143 ? SecureSocketOptions.StartTls : SecureSocketOptions.SslOnConnect;
 
-        using var tiempo = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-        await cliente.ConnectAsync(host, puerto, opciones, tiempo.Token);
-        await cliente.AuthenticateAsync(email, contrasena, tiempo.Token);
+        await client.ConnectAsync(host, port, options, timeout.Token);
+        await client.AuthenticateAsync(email, password, timeout.Token);
 
-        var carpetas = (await cliente.GetFoldersAsync(cliente.PersonalNamespaces[0], cancellationToken: tiempo.Token))
-            .Select(c => c.FullName)
+        var folders = (await client.GetFoldersAsync(client.PersonalNamespaces[0], cancellationToken: timeout.Token))
+            .Select(f => f.FullName)
             .ToArray();
 
-        await cliente.DisconnectAsync(true, tiempo.Token);
+        await client.DisconnectAsync(true, timeout.Token);
 
-        return carpetas;
+        return folders;
     }
 
-    private static string Preguntar(string etiqueta)
+    private static string Ask(string label)
     {
-        Console.Write($"{etiqueta}: ");
+        Console.Write($"{label}: ");
         return Console.ReadLine() ?? string.Empty;
     }
 
-    /// <summary>Lee sin mostrar lo tecleado, para que la contrasena no quede en pantalla.</summary>
-    private static string PreguntarSinEco(string etiqueta)
+    /// <summary>Reads without echoing, so the password never appears on screen.</summary>
+    private static string AskWithoutEcho(string label)
     {
-        Console.Write($"{etiqueta}: ");
+        Console.Write($"{label}: ");
 
         var sb = new System.Text.StringBuilder();
 
         while (true)
         {
-            var tecla = Console.ReadKey(intercept: true);
+            var key = Console.ReadKey(intercept: true);
 
-            if (tecla.Key == ConsoleKey.Enter)
+            if (key.Key == ConsoleKey.Enter)
             {
                 Console.WriteLine();
                 return sb.ToString();
             }
 
-            if (tecla.Key == ConsoleKey.Backspace)
+            if (key.Key == ConsoleKey.Backspace)
             {
                 if (sb.Length > 0)
                 {
@@ -223,9 +223,9 @@ public static class AccountSetup
                 continue;
             }
 
-            if (!char.IsControl(tecla.KeyChar))
+            if (!char.IsControl(key.KeyChar))
             {
-                sb.Append(tecla.KeyChar);
+                sb.Append(key.KeyChar);
             }
         }
     }

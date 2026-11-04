@@ -1,56 +1,59 @@
+using System.Text.Json.Serialization;
 using Dapper;
 using LocalMailAI.Api.Api;
 using LocalMailAI.Api.Classification;
+using Microsoft.Data.Sqlite;
 
 namespace LocalMailAI.Api.Data;
 
-/// <summary>Ejemplos de entrenamiento por origen (<c>corrections.source</c>).</summary>
+/// <summary>Training examples by origin (<c>corrections.source</c>).</summary>
 public sealed record ExampleCounts(int User, int BootstrapSent, int BootstrapFolder, int Rule)
 {
     /// <summary>
-    /// Total en vigor. Es lo que el front muestra en el toast. No se serializa: va
-    /// aparte como `examples`, y duplicarlo dentro del desglose solo daria dos sitios
-    /// donde el mismo numero podria discrepar.
+    /// Total currently in effect. This is what the frontend shows in its toast. Not
+    /// serialised: it travels separately as `examples`, and duplicating it inside the
+    /// breakdown would only create two places where the same number could disagree.
     /// </summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public int Total => User + BootstrapSent + BootstrapFolder + Rule;
 }
 
-/// <summary>Respuesta de una correccion o de un deshacer (§3).</summary>
+/// <summary>
+/// Response of a correction or an undo (§3).
 ///
-/// `Email` se serializa AUNQUE SEA NULL, al contrario que el resto de la API. En un
-/// deshacer sin nada que deshacer, null es la respuesta -"no habia nada"- y no la
-/// ausencia de un dato. Si se omitiera, el front tendria que distinguir `email?: Email`
-/// de `email: Email | null`, que son dos comprobaciones distintas en TypeScript.
+/// <c>Email</c> is serialised EVEN WHEN NULL, unlike the rest of the API. On an undo
+/// with nothing to undo, null is the answer - "there was nothing" - not a missing
+/// field. Omitting it would force the frontend to distinguish `email?: Email` from
+/// `email: Email | null`, which are two different checks in TypeScript.
+/// </summary>
 public sealed record CorrectionResult(
-    [property: System.Text.Json.Serialization.JsonIgnore(
-        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     EmailDto? Email,
     int Examples);
 
 /// <summary>
-/// Correcciones del usuario y deshacer (BACKEND.md §3 y regla 4 de §1).
+/// User corrections and undo (BACKEND.md §3 and rule 4 of §1).
 ///
-/// La regla que manda aqui: las correcciones son HISTORIAL, no estado. Nunca se
-/// sobreescribe ni se borra una fila; deshacer inserta un evento inverso. Eso permite
-/// reentrenar desde cero y medir si el modelo mejora, que es imposible si el historial
-/// se pisa.
+/// The governing rule: corrections are HISTORY, not state. A row is never overwritten
+/// or deleted; undo inserts an inverse event. That is what makes it possible to
+/// retrain from scratch and to measure whether the model improves, neither of which
+/// works if the history is overwritten.
 /// </summary>
 public sealed class CorrectionsRepository(Database db, EmailRepository emails, ILogger<CorrectionsRepository> log)
 {
     /// <summary>
-    /// Registra una correccion del usuario y deja el correo en el bucket corregido.
+    /// Records a user correction and moves the message into the chosen bucket.
     ///
-    /// La confianza pasa a 1.0 a proposito: lo ha dicho el usuario. Si se quedara en
-    /// la del modelo, un correo corregido que estuviera por debajo del umbral seguiria
-    /// saliendo en "No estoy seguro" y la correccion pareceria no haber funcionado.
+    /// Confidence becomes 1.0 deliberately: the user said so. Keeping the model's
+    /// confidence would leave a corrected low-confidence message still showing under
+    /// "not sure", making the correction look like it did nothing.
     /// </summary>
-    public async Task<CorrectionResult?> ApplyAsync(string emailId, Bucket bucket, DateTimeOffset ahora)
+    public async Task<CorrectionResult?> ApplyAsync(string emailId, Bucket bucket, DateTimeOffset now)
     {
         using var cn = db.Open();
         using var tx = cn.BeginTransaction();
 
-        var actual = await cn.QuerySingleOrDefaultAsync<EstadoActual>(
+        var current = await cn.QuerySingleOrDefaultAsync<CurrentState>(
             """
             SELECT e.id AS EmailId, c.bucket AS Bucket, c.confidence AS Confidence
             FROM emails e
@@ -59,7 +62,7 @@ public sealed class CorrectionsRepository(Database db, EmailRepository emails, I
             """,
             new { emailId }, tx);
 
-        if (actual is null)
+        if (current is null)
         {
             tx.Rollback();
             return null;
@@ -68,45 +71,45 @@ public sealed class CorrectionsRepository(Database db, EmailRepository emails, I
         await cn.ExecuteAsync(
             """
             INSERT INTO corrections (email_id, bucket_before, bucket_after, source, created_at, confidence_before)
-            VALUES (@emailId, @bucketBefore, @bucketAfter, 'user', @ahora, @confidenceBefore)
+            VALUES (@emailId, @bucketBefore, @bucketAfter, 'user', @now, @confidenceBefore)
             """,
             new
             {
                 emailId,
-                bucketBefore = actual.Bucket,
+                bucketBefore = current.Bucket,
                 bucketAfter = bucket.ToWire(),
-                ahora = ahora.ToString("O"),
-                confidenceBefore = actual.Confidence,
+                now = now.ToString("O"),
+                confidenceBefore = current.Confidence,
             }, tx);
 
-        await EscribirClasificacionAsync(cn, tx, emailId, bucket.ToWire(), 1.0, ahora);
+        await WriteClassificationAsync(cn, tx, emailId, bucket.ToWire(), 1.0, now);
 
-        var ejemplos = await CountAsync(cn, tx);
+        var examples = await CountAsync(cn, tx);
         tx.Commit();
 
-        log.LogInformation("Correccion de {EmailId}: {Antes} -> {Despues} ({Ejemplos} ejemplos)",
-            emailId, actual.Bucket ?? "sin clasificar", bucket.ToWire(), ejemplos.Total);
+        log.LogInformation("Correction of {EmailId}: {Before} -> {After} ({Examples} examples)",
+            emailId, current.Bucket ?? "unclassified", bucket.ToWire(), examples.Total);
 
-        return new CorrectionResult(await emails.GetAsync(emailId, ahora), ejemplos.Total);
+        return new CorrectionResult(await emails.GetAsync(emailId, now), examples.Total);
     }
 
     /// <summary>
-    /// Deshace la ultima correccion del usuario que siga en vigor.
+    /// Undoes the most recent user correction still in effect.
     ///
-    /// Devuelve <c>Email = null</c> con el total de ejemplos si no hay nada que
-    /// deshacer, en vez de un error: asi el Ctrl+Z del front no tiene que saber si
-    /// queda pila.
+    /// Returns <c>Email = null</c> with the example total when there is nothing to
+    /// undo, rather than an error, so the frontend's Ctrl+Z does not have to track
+    /// whether a stack remains.
     /// </summary>
-    public async Task<CorrectionResult> UndoAsync(DateTimeOffset ahora)
+    public async Task<CorrectionResult> UndoAsync(DateTimeOffset now)
     {
         using var cn = db.Open();
         using var tx = cn.BeginTransaction();
 
-        // Se recorre el registro de lo mas reciente hacia atras llevando la cuenta de
-        // los deshaceres pendientes. Contar undos y restarlos no vale: si el usuario
-        // deshace dos veces y luego corrige otro correo, el siguiente deshacer tiene
-        // que afectar a esa correccion nueva, no a una ya cancelada.
-        var eventos = await cn.QueryAsync<EventoCorreccion>(
+        // The log is walked newest first, carrying a count of pending undos. Counting
+        // undo rows and subtracting does not work: if the user undoes twice and then
+        // corrects another message, the next undo must affect that new correction, not
+        // an already-cancelled one.
+        var events = await cn.QueryAsync<CorrectionEvent>(
             """
             SELECT id AS Id, email_id AS EmailId, bucket_before AS BucketBefore,
                    bucket_after AS BucketAfter, source AS Source, confidence_before AS ConfidenceBefore
@@ -115,79 +118,80 @@ public sealed class CorrectionsRepository(Database db, EmailRepository emails, I
             ORDER BY id DESC
             """, tx);
 
-        EventoCorreccion? objetivo = null;
-        var deshaceresPendientes = 0;
+        CorrectionEvent? target = null;
+        var pendingUndos = 0;
 
-        foreach (var evento in eventos)
+        foreach (var e in events)
         {
-            if (evento.Source == "undo")
+            if (e.Source == "undo")
             {
-                deshaceresPendientes++;
+                pendingUndos++;
                 continue;
             }
 
-            if (deshaceresPendientes > 0)
+            if (pendingUndos > 0)
             {
-                deshaceresPendientes--;
+                pendingUndos--;
                 continue;
             }
 
-            objetivo = evento;
+            target = e;
             break;
         }
 
-        if (objetivo is null)
+        if (target is null)
         {
-            var sinNada = await CountAsync(cn, tx);
+            var nothing = await CountAsync(cn, tx);
             tx.Rollback();
-            return new CorrectionResult(null, sinNada.Total);
+            return new CorrectionResult(null, nothing.Total);
         }
 
-        // Evento inverso, no borrado (§1, regla 4). Con source='undo' para que no
-        // cuente como ejemplo de entrenamiento: si contara, le estariamos ensenando al
-        // modelo la correccion y su contraria a la vez.
+        // An inverse event, not a deletion (§1, rule 4). Tagged source='undo' so it
+        // does not count as a training example: if it did, we would be teaching the
+        // model both the correction and its opposite.
         await cn.ExecuteAsync(
             """
             INSERT INTO corrections (email_id, bucket_before, bucket_after, source, created_at, confidence_before)
-            VALUES (@emailId, @bucketBefore, @bucketAfter, 'undo', @ahora, @confidenceBefore)
+            VALUES (@emailId, @bucketBefore, @bucketAfter, 'undo', @now, @confidenceBefore)
             """,
             new
             {
-                emailId = objetivo.EmailId,
-                bucketBefore = objetivo.BucketAfter,
-                bucketAfter = objetivo.BucketBefore,
-                ahora = ahora.ToString("O"),
+                emailId = target.EmailId,
+                bucketBefore = target.BucketAfter,
+                bucketAfter = target.BucketBefore,
+                now = now.ToString("O"),
                 confidenceBefore = 1.0,
             }, tx);
 
-        // Volver a donde estaba, confianza incluida. Si el correo no estaba clasificado
-        // antes de la correccion, se queda sin clasificar: el pipeline lo recogera.
-        if (objetivo.BucketBefore is null)
+        // Back to where it was, confidence included. If the message had no
+        // classification before the correction, it goes back to having none and the
+        // pipeline will pick it up.
+        if (target.BucketBefore is null)
         {
             await cn.ExecuteAsync(
                 "DELETE FROM classifications WHERE email_id = @emailId",
-                new { emailId = objetivo.EmailId }, tx);
+                new { emailId = target.EmailId }, tx);
         }
         else
         {
-            await EscribirClasificacionAsync(
-                cn, tx, objetivo.EmailId, objetivo.BucketBefore,
-                objetivo.ConfidenceBefore ?? 0, ahora);
+            await WriteClassificationAsync(
+                cn, tx, target.EmailId, target.BucketBefore,
+                target.ConfidenceBefore ?? 0, now);
         }
 
-        var ejemplos = await CountAsync(cn, tx);
+        var examples = await CountAsync(cn, tx);
         tx.Commit();
 
-        log.LogInformation("Deshecha la correccion {Id} de {EmailId}: vuelve a {Bucket} ({Ejemplos} ejemplos)",
-            objetivo.Id, objetivo.EmailId, objetivo.BucketBefore ?? "sin clasificar", ejemplos.Total);
+        log.LogInformation("Undid correction {Id} of {EmailId}: back to {Bucket} ({Examples} examples)",
+            target.Id, target.EmailId, target.BucketBefore ?? "unclassified", examples.Total);
 
-        return new CorrectionResult(await emails.GetAsync(objetivo.EmailId, ahora), ejemplos.Total);
+        return new CorrectionResult(await emails.GetAsync(target.EmailId, now), examples.Total);
     }
 
     /// <summary>
-    /// Ejemplos en vigor, por origen. Los deshaceres se descuentan de las correcciones
-    /// del usuario: sin eso, deshacer SUBIRIA el contador que el front muestra en el
-    /// toast justo despues de pulsar Deshacer.
+    /// Examples in effect, by origin. Undos are subtracted from the user's
+    /// corrections: without that, undoing would RAISE the counter the frontend shows
+    /// in its toast immediately after the user pressed Undo.
     /// </summary>
     public async Task<ExampleCounts> CountAsync()
     {
@@ -195,13 +199,11 @@ public sealed class CorrectionsRepository(Database db, EmailRepository emails, I
         return await CountAsync(cn, null);
     }
 
-    private static async Task<ExampleCounts> CountAsync(
-        Microsoft.Data.Sqlite.SqliteConnection cn,
-        Microsoft.Data.Sqlite.SqliteTransaction? tx)
+    private static async Task<ExampleCounts> CountAsync(SqliteConnection cn, SqliteTransaction? tx)
     {
-        // COUNT y no SUM: SUM sobre cero filas devuelve NULL, y cero filas es el estado
-        // de toda instalacion nueva.
-        var fila = await cn.QuerySingleAsync<FilaOrigenes>(
+        // COUNT and not SUM: SUM over zero rows returns NULL, and zero rows is the
+        // state of every fresh installation.
+        var row = await cn.QuerySingleAsync<OriginRow>(
             """
             SELECT
               COUNT(CASE WHEN source = 'user'             THEN 1 END) AS [User],
@@ -213,38 +215,39 @@ public sealed class CorrectionsRepository(Database db, EmailRepository emails, I
             """, transaction: tx);
 
         return new ExampleCounts(
-            (int)Math.Max(0, fila.User - fila.Undo),
-            (int)fila.BootstrapSent,
-            (int)fila.BootstrapFolder,
-            (int)fila.Rule);
+            (int)Math.Max(0, row.User - row.Undo),
+            (int)row.BootstrapSent,
+            (int)row.BootstrapFolder,
+            (int)row.Rule);
     }
 
-    private static Task EscribirClasificacionAsync(
-        Microsoft.Data.Sqlite.SqliteConnection cn,
-        Microsoft.Data.Sqlite.SqliteTransaction tx,
+    private static Task WriteClassificationAsync(
+        SqliteConnection cn,
+        SqliteTransaction tx,
         string emailId,
         string bucket,
-        double confianza,
-        DateTimeOffset ahora)
+        double confidence,
+        DateTimeOffset now)
     {
-        // Las senales NO se tocan. Siguen siendo hechos ciertos sobre el correo y son
-        // la explicacion de por que el sistema creyo otra cosa; borrarlas al corregir
-        // dejaria al usuario sin saber en que se equivoco el modelo.
+        // The signals are NOT touched. They remain true facts about the message and
+        // they are the explanation of why the system believed something else; erasing
+        // them on correction would leave the user unable to see what the model got
+        // wrong.
         return cn.ExecuteAsync(
             """
             INSERT INTO classifications (email_id, bucket, confidence, signals_json, model_version, computed_at)
-            VALUES (@emailId, @bucket, @confianza, '[]', 0, @ahora)
+            VALUES (@emailId, @bucket, @confidence, '[]', 0, @now)
             ON CONFLICT(email_id) DO UPDATE SET
                 bucket = @bucket,
-                confidence = @confianza,
-                computed_at = @ahora
+                confidence = @confidence,
+                computed_at = @now
             """,
-            new { emailId, bucket, confianza, ahora = ahora.ToString("O") }, tx);
+            new { emailId, bucket, confidence, now = now.ToString("O") }, tx);
     }
 
-    private sealed record EstadoActual(string EmailId, string? Bucket, double? Confidence);
+    private sealed record CurrentState(string EmailId, string? Bucket, double? Confidence);
 
-    private sealed record EventoCorreccion(
+    private sealed record CorrectionEvent(
         long Id,
         string EmailId,
         string? BucketBefore,
@@ -252,5 +255,5 @@ public sealed class CorrectionsRepository(Database db, EmailRepository emails, I
         string Source,
         double? ConfidenceBefore);
 
-    private sealed record FilaOrigenes(long User, long BootstrapSent, long BootstrapFolder, long Rule, long Undo);
+    private sealed record OriginRow(long User, long BootstrapSent, long BootstrapFolder, long Rule, long Undo);
 }

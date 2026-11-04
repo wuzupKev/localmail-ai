@@ -5,91 +5,91 @@ using Microsoft.Data.Sqlite;
 namespace LocalMailAI.Api.Data;
 
 /// <summary>
-/// Migraciones con SQL versionado y PRAGMA user_version (BACKEND.md §4).
-/// Nada de EF Core ni de un runner externo: los ficheros .sql van embebidos en el
-/// ensamblado y se aplican en orden, una transaccion por migracion.
+/// Versioned SQL migrations driven by PRAGMA user_version (BACKEND.md §4).
+/// No EF Core and no external runner: the .sql files are embedded in the assembly and
+/// applied in order, one transaction per migration.
 /// </summary>
 public sealed partial class Migrator(ILogger<Migrator> log)
 {
-    [GeneratedRegex(@"\.(?<ver>\d{3})_(?<nombre>[^.]+)\.sql$", RegexOptions.CultureInvariant)]
-    private static partial Regex NombreRecurso();
+    [GeneratedRegex(@"\.(?<ver>\d{3})_(?<name>[^.]+)\.sql$", RegexOptions.CultureInvariant)]
+    private static partial Regex ResourceName();
 
-    private sealed record Migracion(int Version, string Nombre, string Recurso);
+    private sealed record Migration(int Version, string Name, string Resource);
 
-    private static List<Migracion> Descubrir()
+    private static List<Migration> Discover()
     {
         var asm = Assembly.GetExecutingAssembly();
-        var migraciones = new List<Migracion>();
+        var migrations = new List<Migration>();
 
-        foreach (var recurso in asm.GetManifestResourceNames())
+        foreach (var resource in asm.GetManifestResourceNames())
         {
-            var m = NombreRecurso().Match(recurso);
+            var m = ResourceName().Match(resource);
             if (m.Success)
             {
-                migraciones.Add(new Migracion(
+                migrations.Add(new Migration(
                     int.Parse(m.Groups["ver"].Value),
-                    m.Groups["nombre"].Value,
-                    recurso));
+                    m.Groups["name"].Value,
+                    resource));
             }
         }
 
-        migraciones.Sort((a, b) => a.Version.CompareTo(b.Version));
+        migrations.Sort((a, b) => a.Version.CompareTo(b.Version));
 
-        // Dos migraciones con el mismo numero significan que alguien ha creado un
-        // fichero sin mirar el anterior: el orden seria indefinido y el esquema
-        // divergiria entre maquinas. Mejor no arrancar.
-        for (var i = 1; i < migraciones.Count; i++)
+        // Two migrations with the same number mean someone created a file without
+        // checking the previous one: the order would be undefined and the schema would
+        // diverge between machines. Better not to start at all.
+        for (var i = 1; i < migrations.Count; i++)
         {
-            if (migraciones[i].Version == migraciones[i - 1].Version)
+            if (migrations[i].Version == migrations[i - 1].Version)
             {
                 throw new InvalidOperationException(
-                    $"dos migraciones con la version {migraciones[i].Version}: " +
-                    $"{migraciones[i - 1].Nombre} y {migraciones[i].Nombre}");
+                    $"two migrations share version {migrations[i].Version}: " +
+                    $"{migrations[i - 1].Name} and {migrations[i].Name}");
             }
         }
 
-        return migraciones;
+        return migrations;
     }
 
-    private static string Leer(string recurso)
+    private static string Read(string resource)
     {
-        using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(recurso)
-            ?? throw new InvalidOperationException($"recurso embebido no encontrado: {recurso}");
+        using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException($"embedded resource not found: {resource}");
         using var r = new StreamReader(s);
         return r.ReadToEnd();
     }
 
-    /// <summary>Aplica lo que falte. Devuelve la version final del esquema.</summary>
+    /// <summary>Applies whatever is missing. Returns the resulting schema version.</summary>
     public int Migrate(SqliteConnection cn)
     {
-        var migraciones = Descubrir();
-        if (migraciones.Count == 0)
+        var migrations = Discover();
+        if (migrations.Count == 0)
         {
             throw new InvalidOperationException(
-                "no hay migraciones embebidas: revisa el EmbeddedResource de Migrations/*.sql en el .csproj");
+                "no embedded migrations: check the EmbeddedResource entry for Migrations/*.sql in the .csproj");
         }
 
-        var actual = LeerUserVersion(cn);
-        var objetivo = migraciones[^1].Version;
+        var current = ReadUserVersion(cn);
+        var target = migrations[^1].Version;
 
-        if (actual > objetivo)
+        if (current > target)
         {
-            // Base de datos escrita por una version mas nueva del backend. Seguir
-            // adelante corromperia datos del usuario en lugar de solo fallar.
+            // A database written by a newer build. Carrying on would corrupt the
+            // user's data rather than merely failing.
             throw new InvalidOperationException(
-                $"la base de datos esta en la version {actual} y este binario solo conoce hasta la {objetivo}. " +
-                "Actualiza el backend en lugar de degradarlo.");
+                $"the database is at version {current} and this binary only knows up to {target}. " +
+                "Update the backend instead of downgrading it.");
         }
 
-        if (actual == objetivo)
+        if (current == target)
         {
-            log.LogInformation("Esquema ya en la version {Version}, nada que migrar", actual);
-            return actual;
+            log.LogInformation("Schema already at version {Version}, nothing to migrate", current);
+            return current;
         }
 
-        foreach (var migracion in migraciones.Where(m => m.Version > actual))
+        foreach (var migration in migrations.Where(m => m.Version > current))
         {
-            var sql = Leer(migracion.Recurso);
+            var sql = Read(migration.Resource);
 
             using var tx = cn.BeginTransaction();
             using (var cmd = cn.CreateCommand())
@@ -99,30 +99,30 @@ public sealed partial class Migrator(ILogger<Migrator> log)
                 cmd.ExecuteNonQuery();
             }
 
-            // user_version no acepta parametros, pero el valor viene de un int ya
-            // parseado del nombre del fichero, no de entrada externa.
+            // user_version does not accept parameters, but the value is an int already
+            // parsed from the file name, not external input.
             using (var cmd = cn.CreateCommand())
             {
                 cmd.Transaction = tx;
-                cmd.CommandText = $"PRAGMA user_version = {migracion.Version};";
+                cmd.CommandText = $"PRAGMA user_version = {migration.Version};";
                 cmd.ExecuteNonQuery();
             }
 
             tx.Commit();
-            log.LogInformation("Migracion {Version} ({Nombre}) aplicada", migracion.Version, migracion.Nombre);
+            log.LogInformation("Migration {Version} ({Name}) applied", migration.Version, migration.Name);
         }
 
-        var final = LeerUserVersion(cn);
-        if (final != objetivo)
+        var final = ReadUserVersion(cn);
+        if (final != target)
         {
             throw new InvalidOperationException(
-                $"tras migrar, user_version es {final} y deberia ser {objetivo}");
+                $"after migrating, user_version is {final} and should be {target}");
         }
 
         return final;
     }
 
-    private static int LeerUserVersion(SqliteConnection cn)
+    private static int ReadUserVersion(SqliteConnection cn)
     {
         using var cmd = cn.CreateCommand();
         cmd.CommandText = "PRAGMA user_version;";

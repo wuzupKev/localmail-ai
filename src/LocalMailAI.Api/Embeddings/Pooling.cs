@@ -4,28 +4,29 @@ using System.Numerics.Tensors;
 namespace LocalMailAI.Api.Embeddings;
 
 /// <summary>
-/// Las operaciones del post-procesado de embeddings, separadas del modelo a proposito.
+/// The embedding post-processing operations, deliberately separated from the model.
 ///
-/// Aqui es donde los embeddings se degradan EN SILENCIO si algo esta mal: ninguna de
-/// estas funciones puede fallar con una excepcion, solo dar numeros plausibles y
-/// peores. Estan sueltas y sin dependencias para poder probarlas con valores a mano,
-/// sin cargar 470 MB de modelo.
+/// This is where embeddings degrade SILENTLY when something is wrong: none of these
+/// functions can fail with an exception, they can only return plausible, worse
+/// numbers. They live here with no dependencies so they can be tested with hand-built
+/// values, without loading 470 MB of model.
 /// </summary>
 public static class Pooling
 {
-    /// <summary>Maximo de e5-small. Mas tokens no caben en el modelo.</summary>
+    /// <summary>Maximum sequence length of e5-small. More tokens do not fit.</summary>
     public const int MaxTokens = 512;
 
-    /// <summary>Tokens especiales de XLM-RoBERTa, verificados en el hito 0.</summary>
+    /// <summary>XLM-RoBERTa special tokens, verified in milestone 0.</summary>
     public const uint BosId = 0;
     public const uint PadId = 1;
     public const uint EosId = 2;
 
     /// <summary>
-    /// Recorta a <see cref="MaxTokens"/> conservando el cierre.
+    /// Truncates to <see cref="MaxTokens"/> while keeping the closing token.
     ///
-    /// Cortar por lo sano dejaria la secuencia sin su &lt;/s&gt; final, y el modelo se
-    /// entreno siempre con el. El ultimo token se sustituye en lugar de descartarse.
+    /// Cutting bluntly would leave the sequence without its trailing &lt;/s&gt;, and the
+    /// model was trained with it always present. The last token is replaced rather
+    /// than dropped.
     /// </summary>
     public static uint[] Truncate(uint[] ids)
     {
@@ -36,108 +37,108 @@ public static class Pooling
             return ids;
         }
 
-        var recortado = ids[..MaxTokens];
-        recortado[^1] = EosId;
-        return recortado;
+        var truncated = ids[..MaxTokens];
+        truncated[^1] = EosId;
+        return truncated;
     }
 
     /// <summary>
-    /// Media de los vectores de token ponderada por la mascara de atencion.
+    /// Mean of the token vectors, weighted by the attention mask.
     ///
-    /// Promediar tambien las posiciones de relleno meteria ruido proporcional a cuanto
-    /// relleno tenga el lote: el MISMO texto daria vectores distintos segun con quien
-    /// le toque compartir lote. Es el error mas facil de cometer aqui y no da ningun
-    /// sintoma visible.
+    /// Averaging the padding positions too would inject noise proportional to how much
+    /// padding the batch happens to have: the SAME text would produce different
+    /// vectors depending on who it shares a batch with. It is the easiest mistake to
+    /// make here and it produces no visible symptom.
     /// </summary>
-    /// <param name="ultimaCapa">last_hidden_state aplanado: tokens * dim.</param>
-    /// <param name="mascara">1 por token real, 0 por relleno.</param>
-    /// <param name="dim">Dimension del vector (384 en e5-small).</param>
-    public static float[] MeanPool(ReadOnlySpan<float> ultimaCapa, ReadOnlySpan<long> mascara, int dim)
+    /// <param name="lastHiddenState">last_hidden_state, flattened: tokens * dim.</param>
+    /// <param name="mask">1 per real token, 0 per padding position.</param>
+    /// <param name="dim">Vector dimension (384 for e5-small).</param>
+    public static float[] MeanPool(ReadOnlySpan<float> lastHiddenState, ReadOnlySpan<long> mask, int dim)
     {
         if (dim <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(dim), dim, "la dimension tiene que ser positiva");
+            throw new ArgumentOutOfRangeException(nameof(dim), dim, "dimension must be positive");
         }
 
-        if (ultimaCapa.Length != mascara.Length * dim)
+        if (lastHiddenState.Length != mask.Length * dim)
         {
             throw new ArgumentException(
-                $"last_hidden_state tiene {ultimaCapa.Length} valores y la mascara {mascara.Length} tokens de {dim} dimensiones",
-                nameof(ultimaCapa));
+                $"last_hidden_state has {lastHiddenState.Length} values but the mask has {mask.Length} tokens of {dim} dimensions",
+                nameof(lastHiddenState));
         }
 
-        var suma = new float[dim];
-        var reales = 0;
+        var sum = new float[dim];
+        var real = 0;
 
-        for (var t = 0; t < mascara.Length; t++)
+        for (var t = 0; t < mask.Length; t++)
         {
-            if (mascara[t] == 0)
+            if (mask[t] == 0)
             {
                 continue;
             }
 
-            reales++;
-            var desde = t * dim;
+            real++;
+            var from = t * dim;
             for (var i = 0; i < dim; i++)
             {
-                suma[i] += ultimaCapa[desde + i];
+                sum[i] += lastHiddenState[from + i];
             }
         }
 
-        // Una secuencia con la mascara entera a cero no deberia llegar aqui, pero
-        // dividir por cero daria NaN y un NaN se propaga a todos los cosenos sin
-        // decir de donde vino.
-        if (reales == 0)
+        // A sequence with an all-zero mask should never reach this point, but dividing
+        // by zero would produce NaN, and a NaN propagates into every cosine without
+        // saying where it came from.
+        if (real == 0)
         {
-            return suma;
+            return sum;
         }
 
         for (var i = 0; i < dim; i++)
         {
-            suma[i] /= reales;
+            sum[i] /= real;
         }
 
-        return suma;
+        return sum;
     }
 
     /// <summary>
-    /// Normaliza a norma 1.
+    /// Normalises to unit length.
     ///
-    /// Sin esto el producto escalar deja de ser el coseno y el ranking de la busqueda
-    /// sale mal ordenado: los textos largos tienden a vectores de mayor norma y
-    /// ganarian por longitud, no por parecido.
+    /// Without this the dot product stops being the cosine and search ranking comes out
+    /// in the wrong order: longer texts tend to have larger norms and would win on
+    /// length rather than on similarity.
     /// </summary>
     public static float[] Normalize(float[] vector)
     {
         ArgumentNullException.ThrowIfNull(vector);
 
-        var norma = MathF.Sqrt(TensorPrimitives.Dot<float>(vector, vector));
+        var norm = MathF.Sqrt(TensorPrimitives.Dot<float>(vector, vector));
 
-        if (norma < 1e-12f)
+        if (norm < 1e-12f)
         {
             return vector;
         }
 
-        TensorPrimitives.Divide<float>(vector, norma, vector);
+        TensorPrimitives.Divide<float>(vector, norm, vector);
         return vector;
     }
 
     /// <summary>
-    /// Coseno entre dos vectores YA normalizados: el producto escalar, con SIMD.
-    /// Para menos de 100.000 correos esto por fuerza bruta es instantaneo (§11), asi
-    /// que no hay indice aproximado hasta haber medido que hace falta.
+    /// Cosine between two ALREADY normalised vectors: the dot product, SIMD-accelerated.
+    /// For fewer than 100,000 messages, brute force is instant (§11), so there is no
+    /// approximate index until it has been measured to be necessary.
     /// </summary>
     public static float Cosine(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         if (a.Length != b.Length)
         {
-            throw new ArgumentException($"dimensiones distintas: {a.Length} y {b.Length}", nameof(b));
+            throw new ArgumentException($"different dimensions: {a.Length} and {b.Length}", nameof(b));
         }
 
         return TensorPrimitives.Dot(a, b);
     }
 
-    /// <summary>float32 little-endian, que es lo que declara la columna `vec` de §4.</summary>
+    /// <summary>float32 little-endian, which is what the `vec` column in §4 declares.</summary>
     public static byte[] ToBlob(float[] vector)
     {
         ArgumentNullException.ThrowIfNull(vector);
@@ -155,7 +156,7 @@ public static class Pooling
     {
         if (blob.Length % sizeof(float) != 0)
         {
-            throw new ArgumentException($"{blob.Length} bytes no son float32 completos", nameof(blob));
+            throw new ArgumentException($"{blob.Length} bytes are not whole float32 values", nameof(blob));
         }
 
         var vector = new float[blob.Length / sizeof(float)];

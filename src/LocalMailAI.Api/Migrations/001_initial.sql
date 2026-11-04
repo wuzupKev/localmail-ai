@@ -1,33 +1,32 @@
--- 001_initial: esquema inicial. Transcripcion de BACKEND.md §4.
+-- 001_initial: initial schema. Transcribed from BACKEND.md §4.
 --
--- Nota sobre email_fts y los rowid, que es la trampa de este esquema:
--- la tabla FTS5 se declara con content='' (sin contenido), asi que no guarda los
--- valores de las columnas y una consulta solo puede devolver el rowid. Como
--- emails.id es TEXT, el enlace entre ambas es emails.rowid (implicito: emails NO
--- es WITHOUT ROWID, luego lo tiene).
+-- Note on email_fts and rowids, which is the trap in this schema: the FTS5 table is
+-- declared with content='' (contentless), so it stores no column values and a query
+-- can only return the rowid. Since emails.id is TEXT, the link between the two is
+-- emails.rowid (implicit: emails is NOT a WITHOUT ROWID table, so it has one).
 --
--- Consecuencia operativa: VACUUM puede renumerar los rowid de una tabla cuya
--- clave primaria no es INTEGER, y eso desincronizaria el indice en silencio. Por
--- eso el producto NUNCA ejecuta VACUUM; si alguna vez hiciera falta, hay que
--- reconstruir email_fts despues. Queda escrito aqui para que nadie lo descubra
--- a base de resultados de busqueda que faltan sin explicacion.
+-- Operational consequence: VACUUM can renumber the rowids of a table whose primary key
+-- is not INTEGER, which would silently desynchronise the index. For that reason the
+-- product NEVER runs VACUUM; if it ever had to, email_fts must be rebuilt afterwards.
+-- Written here so nobody discovers it through search results that go missing with no
+-- explanation.
 
 CREATE TABLE accounts (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   imap_host TEXT NOT NULL,
   imap_port INTEGER NOT NULL,
-  credential_key TEXT NOT NULL,   -- clave en el almacen del SO, no la contrasena
-  last_uid INTEGER,               -- UIDNEXT para sync incremental
+  credential_key TEXT NOT NULL,   -- key into the OS credential store, not the password
+  last_uid INTEGER,               -- UIDNEXT, for incremental sync
   uid_validity INTEGER,
   created_at TEXT NOT NULL
 );
 
 CREATE TABLE emails (
-  id TEXT PRIMARY KEY,            -- hash estable de Message-ID + account_id
+  id TEXT PRIMARY KEY,            -- stable hash of Message-ID + account_id
   account_id TEXT NOT NULL REFERENCES accounts(id),
   message_id TEXT NOT NULL,
-  thread_id TEXT NOT NULL,        -- raiz de References/In-Reply-To
+  thread_id TEXT NOT NULL,        -- root of References / In-Reply-To
   uid INTEGER NOT NULL,
   folder TEXT NOT NULL,
   from_name TEXT, from_email TEXT NOT NULL,
@@ -46,7 +45,8 @@ CREATE INDEX idx_emails_thread ON emails(thread_id);
 CREATE INDEX idx_emails_date ON emails(date_utc DESC);
 CREATE INDEX idx_emails_sender ON emails(from_email);
 
--- Texto ya normalizado: sin HTML, sin citas, sin firma. Es lo que ve el modelo.
+-- Already-normalised text: no HTML, no quotes, no signature. This is what the model
+-- sees.
 CREATE TABLE email_text (
   email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
   body_clean TEXT NOT NULL,
@@ -61,12 +61,12 @@ CREATE VIRTUAL TABLE email_fts USING fts5(
 
 CREATE TABLE embeddings (
   email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
-  model TEXT NOT NULL,            -- permite reindexar al cambiar de modelo
+  model TEXT NOT NULL,            -- allows reindexing when the model changes
   dim INTEGER NOT NULL,
   vec BLOB NOT NULL               -- float32 little-endian
 );
 
--- Estado actual calculado por el sistema.
+-- The current state computed by the system.
 CREATE TABLE classifications (
   email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
   bucket TEXT NOT NULL,
@@ -76,8 +76,8 @@ CREATE TABLE classifications (
   computed_at TEXT NOT NULL
 );
 
--- HISTORIAL, no estado. Permite reentrenar desde cero y medir mejora.
--- No sobrescribas nunca: inserta siempre una fila nueva.
+-- HISTORY, not state. This is what makes retraining from scratch and measuring
+-- improvement possible. Never overwrite: always insert a new row.
 CREATE TABLE corrections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email_id TEXT NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
@@ -96,11 +96,11 @@ CREATE TABLE extractions (
 CREATE TABLE summaries (
   thread_id TEXT PRIMARY KEY,
   summary TEXT NOT NULL,
-  up_to_message_id TEXT NOT NULL, -- invalida si llegan mensajes nuevos
+  up_to_message_id TEXT NOT NULL, -- invalidated when new messages arrive
   model TEXT NOT NULL, created_at TEXT NOT NULL
 );
 
--- Cola de trabajo. No metas un broker: esto basta.
+-- Work queue. Do not introduce a broker: this is enough.
 CREATE TABLE jobs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,             -- 'sync' | 'embed' | 'extract' | 'summarize'
@@ -112,7 +112,7 @@ CREATE TABLE jobs (
 );
 CREATE INDEX idx_jobs_pending ON jobs(state, priority, created_at);
 
--- Cache de reputacion del remitente. Alimenta las senales deterministas.
+-- Sender reputation cache. Feeds the deterministic signals.
 CREATE TABLE sender_stats (
   account_id TEXT NOT NULL, from_email TEXT NOT NULL,
   received INTEGER NOT NULL DEFAULT 0,

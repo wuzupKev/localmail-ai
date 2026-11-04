@@ -5,198 +5,198 @@ using Tokenizers.DotNet;
 namespace LocalMailAI.Api.Embeddings;
 
 /// <summary>
-/// Embeddings con multilingual-e5-small en ONNX Runtime (BACKEND.md §2 y §5, etapa 5).
+/// Embeddings with multilingual-e5-small on ONNX Runtime (BACKEND.md §2 and §5, stage 5).
 ///
-/// Dos cosas que esta clase impone a proposito, porque las dos fallan en silencio:
+/// Two things this class enforces deliberately, because both fail silently:
 ///
-/// 1. **Los prefijos de e5.** No hay un metodo <c>Embed(texto)</c>: hay
-///    <see cref="EmbedPassage"/> y <see cref="EmbedQuery"/>. e5 exige "passage: " para
-///    los documentos y "query: " para las consultas, y olvidarlo degrada los resultados
-///    sin dar ningun error (§8 lo llama "el error mas comun con estos modelos"). Si la
-///    unica forma de llamar al embedder es eligiendo cual de los dos, no se puede
-///    olvidar.
-/// 2. **El pooling con mascara.** Vive en <see cref="Pooling"/>, probado aparte.
+/// 1. **The e5 prefixes.** There is no <c>Embed(text)</c> method: there is
+///    <see cref="EmbedPassage"/> and <see cref="EmbedQuery"/>. e5 requires "passage: "
+///    for documents and "query: " for queries, and omitting it degrades results with
+///    no error at all (§8 calls it "the most common mistake with these models"). If
+///    the only way to call the embedder is to choose one of the two, it cannot be
+///    forgotten.
+/// 2. **Mask-weighted pooling.** It lives in <see cref="Pooling"/>, tested separately.
 ///
-/// La tokenizacion usa el mismo tokenizer.json que verifico el hito 0, asi que los
-/// identificadores coinciden con la referencia de Python. No se vuelve a discutir.
+/// Tokenisation uses the same tokenizer.json that milestone 0 verified, so the token
+/// ids match the Python reference. That is settled and not revisited.
 /// </summary>
 public sealed class E5Embedder : IDisposable
 {
     public const int Dim = 384;
     public const string ModelName = "multilingual-e5-small (ONNX, 118M)";
 
-    /// <summary>§5: lotes de 32.</summary>
+    /// <summary>§5: batches of 32.</summary>
     public const int BatchSize = 32;
 
     private readonly Tokenizer _tokenizer;
-    private readonly InferenceSession _sesion;
-    private readonly bool _necesitaTokenTypeIds;
+    private readonly InferenceSession _session;
+    private readonly bool _needsTokenTypeIds;
     private readonly ILogger<E5Embedder> _log;
 
-    private E5Embedder(Tokenizer tokenizer, InferenceSession sesion, ILogger<E5Embedder> log)
+    private E5Embedder(Tokenizer tokenizer, InferenceSession session, ILogger<E5Embedder> log)
     {
         _tokenizer = tokenizer;
-        _sesion = sesion;
+        _session = session;
         _log = log;
 
-        var entradas = _sesion.InputMetadata.Keys.ToList();
-        _necesitaTokenTypeIds = entradas.Contains("token_type_ids");
+        var inputs = _session.InputMetadata.Keys.ToList();
+        _needsTokenTypeIds = inputs.Contains("token_type_ids");
 
-        log.LogInformation("Embedder listo: entradas [{Entradas}], dimension {Dim}",
-            string.Join(", ", entradas), Dim);
+        log.LogInformation("Embedder ready: inputs [{Inputs}], dimension {Dim}",
+            string.Join(", ", inputs), Dim);
     }
 
     /// <summary>
-    /// Carga el modelo si esta en disco. Devuelve null si falta, en vez de reventar:
-    /// el producto tiene que arrancar igual y degradar, como con Ollama (§7). Sin
-    /// embeddings se pierden la busqueda vectorial y el clasificador entrenado, pero
-    /// el triage por senales y la busqueda BM25 siguen funcionando.
+    /// Loads the model if it is on disk. Returns null when it is missing instead of
+    /// throwing: the product must still start and degrade, as it does with Ollama (§7).
+    /// Without embeddings there is no vector search and no trained classifier, but
+    /// signal triage and BM25 search keep working.
     /// </summary>
-    public static E5Embedder? TryLoad(string directorioModelo, ILogger<E5Embedder> log)
+    public static E5Embedder? TryLoad(string modelDirectory, ILogger<E5Embedder> log)
     {
-        var tokenizerJson = Path.Combine(directorioModelo, "tokenizer.json");
-        var modeloOnnx = Path.Combine(directorioModelo, "onnx", "model.onnx");
+        var tokenizerJson = Path.Combine(modelDirectory, "tokenizer.json");
+        var onnxModel = Path.Combine(modelDirectory, "onnx", "model.onnx");
 
-        if (!File.Exists(tokenizerJson) || !File.Exists(modeloOnnx))
+        if (!File.Exists(tokenizerJson) || !File.Exists(onnxModel))
         {
             log.LogWarning(
-                "Sin embeddings: falta {Que}. El triage por senales y la busqueda BM25 siguen funcionando.",
-                !File.Exists(modeloOnnx) ? modeloOnnx : tokenizerJson);
+                "No embeddings: {What} is missing. Signal triage and BM25 search keep working.",
+                !File.Exists(onnxModel) ? onnxModel : tokenizerJson);
             return null;
         }
 
         try
         {
-            // Cualificado: ASP.NET Core tiene su propio SessionOptions y entra por los
-            // using implicitos.
-            var opciones = new Microsoft.ML.OnnxRuntime.SessionOptions
+            // Fully qualified: ASP.NET Core has its own SessionOptions and it comes in
+            // through the implicit usings.
+            var options = new Microsoft.ML.OnnxRuntime.SessionOptions
             {
-                // Un proceso local en el portatil de alguien: no se puede acaparar la
-                // maquina mientras el usuario trabaja.
+                // A local process on someone's laptop: it must not take over the
+                // machine while the user is working.
                 IntraOpNumThreads = Math.Max(1, Environment.ProcessorCount / 2),
                 GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
             };
 
-            return new E5Embedder(new Tokenizer(tokenizerJson), new InferenceSession(modeloOnnx, opciones), log);
+            return new E5Embedder(new Tokenizer(tokenizerJson), new InferenceSession(onnxModel, options), log);
         }
         catch (Exception ex)
         {
-            log.LogError(ex, "No se ha podido cargar el modelo de embeddings; se sigue sin el");
+            log.LogError(ex, "Could not load the embedding model; continuing without it");
             return null;
         }
     }
 
-    /// <summary>Embedding de un documento. Anade el prefijo "passage: " que exige e5.</summary>
-    public float[] EmbedPassage(string texto) => Embed([Prefijar("passage: ", texto)])[0];
+    /// <summary>Embeds a document. Adds the "passage: " prefix that e5 requires.</summary>
+    public float[] EmbedPassage(string text) => Embed([Prefixed("passage: ", text)])[0];
 
-    /// <summary>Embedding de una consulta. Anade el prefijo "query: " que exige e5.</summary>
-    public float[] EmbedQuery(string texto) => Embed([Prefijar("query: ", texto)])[0];
+    /// <summary>Embeds a query. Adds the "query: " prefix that e5 requires.</summary>
+    public float[] EmbedQuery(string text) => Embed([Prefixed("query: ", text)])[0];
 
-    /// <summary>Varios documentos de una vez. El lote es donde la mascara importa.</summary>
-    public float[][] EmbedPassages(IReadOnlyList<string> textos)
+    /// <summary>Several documents at once. Batching is where the mask matters.</summary>
+    public float[][] EmbedPassages(IReadOnlyList<string> texts)
     {
-        ArgumentNullException.ThrowIfNull(textos);
+        ArgumentNullException.ThrowIfNull(texts);
 
-        var resultado = new float[textos.Count][];
+        var result = new float[texts.Count][];
 
-        for (var desde = 0; desde < textos.Count; desde += BatchSize)
+        for (var from = 0; from < texts.Count; from += BatchSize)
         {
-            var lote = textos.Skip(desde).Take(BatchSize)
-                .Select(t => Prefijar("passage: ", t))
+            var batch = texts.Skip(from).Take(BatchSize)
+                .Select(t => Prefixed("passage: ", t))
                 .ToList();
 
-            var vectores = Embed(lote);
-            for (var i = 0; i < vectores.Length; i++)
+            var vectors = Embed(batch);
+            for (var i = 0; i < vectors.Length; i++)
             {
-                resultado[desde + i] = vectores[i];
+                result[from + i] = vectors[i];
             }
         }
 
-        return resultado;
+        return result;
     }
 
-    private static string Prefijar(string prefijo, string texto)
+    private static string Prefixed(string prefix, string text)
     {
-        var limpio = (texto ?? string.Empty).Trim();
+        var clean = (text ?? string.Empty).Trim();
 
-        // Un cuerpo vacio no se puede embeber de forma util, pero tampoco debe reventar
-        // la ingesta: el prefijo solo ya da un vector valido y consistente.
-        return limpio.Length == 0 ? prefijo.TrimEnd() : prefijo + limpio;
+        // An empty body cannot be embedded usefully, but it must not break ingestion
+        // either: the prefix alone still yields a valid, consistent vector.
+        return clean.Length == 0 ? prefix.TrimEnd() : prefix + clean;
     }
 
-    private float[][] Embed(IReadOnlyList<string> textosConPrefijo)
+    private float[][] Embed(IReadOnlyList<string> prefixedTexts)
     {
-        var secuencias = textosConPrefijo
+        var sequences = prefixedTexts
             .Select(t => Pooling.Truncate(_tokenizer.Encode(t) ?? []))
             .ToList();
 
-        var largo = secuencias.Max(s => s.Length);
-        var n = secuencias.Count;
+        var width = sequences.Max(s => s.Length);
+        var n = sequences.Count;
 
-        var ids = new DenseTensor<long>([n, largo]);
-        var mascara = new DenseTensor<long>([n, largo]);
-        var tipos = _necesitaTokenTypeIds ? new DenseTensor<long>([n, largo]) : null;
+        var ids = new DenseTensor<long>([n, width]);
+        var mask = new DenseTensor<long>([n, width]);
+        var types = _needsTokenTypeIds ? new DenseTensor<long>([n, width]) : null;
 
-        for (var f = 0; f < n; f++)
+        for (var row = 0; row < n; row++)
         {
-            var secuencia = secuencias[f];
+            var sequence = sequences[row];
 
-            for (var t = 0; t < largo; t++)
+            for (var t = 0; t < width; t++)
             {
-                var esReal = t < secuencia.Length;
-                ids[f, t] = esReal ? secuencia[t] : Pooling.PadId;
-                mascara[f, t] = esReal ? 1 : 0;
+                var isReal = t < sequence.Length;
+                ids[row, t] = isReal ? sequence[t] : Pooling.PadId;
+                mask[row, t] = isReal ? 1 : 0;
 
-                if (tipos is not null)
+                if (types is not null)
                 {
-                    // XLM-RoBERTa no usa pares de frases: todo es segmento 0.
-                    tipos[f, t] = 0;
+                    // XLM-RoBERTa does not use sentence pairs: everything is segment 0.
+                    types[row, t] = 0;
                 }
             }
         }
 
-        var entradas = new List<NamedOnnxValue>
+        var inputs = new List<NamedOnnxValue>
         {
             NamedOnnxValue.CreateFromTensor("input_ids", ids),
-            NamedOnnxValue.CreateFromTensor("attention_mask", mascara),
+            NamedOnnxValue.CreateFromTensor("attention_mask", mask),
         };
 
-        if (tipos is not null)
+        if (types is not null)
         {
-            entradas.Add(NamedOnnxValue.CreateFromTensor("token_type_ids", tipos));
+            inputs.Add(NamedOnnxValue.CreateFromTensor("token_type_ids", types));
         }
 
-        using var salida = _sesion.Run(entradas);
-        var ultimaCapa = salida.First().AsTensor<float>();
+        using var output = _session.Run(inputs);
+        var lastHiddenState = output.First().AsTensor<float>();
 
-        if (ultimaCapa.Dimensions[2] != Dim)
+        if (lastHiddenState.Dimensions[2] != Dim)
         {
             throw new InvalidOperationException(
-                $"el modelo devuelve vectores de {ultimaCapa.Dimensions[2]} y se esperaban {Dim}");
+                $"the model returns vectors of {lastHiddenState.Dimensions[2]} but {Dim} was expected");
         }
 
-        var vectores = new float[n][];
-        var plano = ultimaCapa.ToArray();
+        var vectors = new float[n][];
+        var flat = lastHiddenState.ToArray();
 
-        for (var f = 0; f < n; f++)
+        for (var row = 0; row < n; row++)
         {
-            var desde = f * largo * Dim;
-            var filaMascara = new long[largo];
-            for (var t = 0; t < largo; t++)
+            var from = row * width * Dim;
+            var rowMask = new long[width];
+            for (var t = 0; t < width; t++)
             {
-                filaMascara[t] = mascara[f, t];
+                rowMask[t] = mask[row, t];
             }
 
-            vectores[f] = Pooling.Normalize(
-                Pooling.MeanPool(plano.AsSpan(desde, largo * Dim), filaMascara, Dim));
+            vectors[row] = Pooling.Normalize(
+                Pooling.MeanPool(flat.AsSpan(from, width * Dim), rowMask, Dim));
         }
 
-        return vectores;
+        return vectors;
     }
 
     public void Dispose()
     {
-        _sesion.Dispose();
+        _session.Dispose();
         _tokenizer.Dispose();
     }
 }

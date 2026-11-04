@@ -3,9 +3,9 @@ using Microsoft.Data.Sqlite;
 namespace LocalMailAI.Api.Data;
 
 /// <summary>
-/// Un unico fichero SQLite en %LOCALAPPDATA%/LocalMailAI/localmail.db (BACKEND.md §4).
-/// La ruta se puede sobreescribir con la clave de configuracion "Database:Path",
-/// que es lo que usan los tests para no tocar la base de datos real del usuario.
+/// A single SQLite file at %LOCALAPPDATA%/LocalMailAI/localmail.db (BACKEND.md §4).
+/// The path can be overridden with the "Database:Path" configuration key, which is
+/// what the tests use so they never touch the user's real database.
 /// </summary>
 public sealed class Database(string path)
 {
@@ -13,16 +13,16 @@ public sealed class Database(string path)
 
     public static string ResolveDefaultPath(IConfiguration config)
     {
-        var configurada = config["Database:Path"];
-        if (!string.IsNullOrWhiteSpace(configurada))
+        var configured = config["Database:Path"];
+        if (!string.IsNullOrWhiteSpace(configured))
         {
-            return System.IO.Path.GetFullPath(configurada);
+            return System.IO.Path.GetFullPath(configured);
         }
 
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrWhiteSpace(localAppData))
         {
-            // Fuera de Windows no existe LOCALAPPDATA; cae al equivalente XDG.
+            // There is no LOCALAPPDATA outside Windows; fall back to the XDG equivalent.
             localAppData = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
         }
@@ -31,9 +31,9 @@ public sealed class Database(string path)
     }
 
     /// <summary>
-    /// Abre una conexion ya configurada. Los PRAGMA de journal y foreign_keys tienen
-    /// que ir aqui y no dentro de una migracion: journal_mode no se puede cambiar
-    /// dentro de una transaccion y foreign_keys seria un no-op.
+    /// Opens a configured connection. The journal and foreign_keys pragmas have to be
+    /// set here and not inside a migration: journal_mode cannot be changed inside a
+    /// transaction, and foreign_keys would be a no-op there.
     /// </summary>
     public SqliteConnection Open()
     {

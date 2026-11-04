@@ -1,33 +1,33 @@
--- 002: escritura de etiquetas en lote y deshacer.
+-- 002: batch label writes and undo.
 --
--- Dos cosas que el esquema de §4 no podia expresar y que el flujo acordado con el
--- front necesita.
+-- Two things the §4 schema could not express and that the flow agreed with the
+-- frontend needs.
 
--- 1. Que se ha escrito ya en el servidor IMAP.
+-- 1. What has already been written to the IMAP server.
 --
--- Sin esto no hay forma de contestar a "cuantas etiquetas quedan por aplicar": en
--- `corrections` esta el evento y en `classifications` el estado actual, pero ninguna
--- de las dos sabe que llego al servidor. El boton "Aplicar N etiquetas" mentiria, o
--- reescribiriamos etiquetas ya aplicadas en cada pasada.
+-- Without this there is no way to answer "how many labels are still pending": the
+-- event is in `corrections` and the current state is in `classifications`, but neither
+-- knows what reached the server. The "Apply N labels" button would lie, or we would
+-- rewrite already-applied labels on every pass.
 --
--- Pendiente = correos cuyo bucket actual no coincide con el ultimo escrito.
+-- Pending = messages whose current bucket differs from the last one written.
 CREATE TABLE label_writes (
   email_id TEXT PRIMARY KEY REFERENCES emails(id) ON DELETE CASCADE,
-  folder TEXT NOT NULL,           -- carpeta/etiqueta IMAP real, p.ej. 'LocalMail/Responder'
-  bucket TEXT NOT NULL,           -- bucket que se escribio, para comparar con el actual
+  folder TEXT NOT NULL,           -- the real IMAP folder/label, e.g. 'LocalMail/Responder'
+  bucket TEXT NOT NULL,           -- the bucket that was written, to compare with the current one
   written_at TEXT NOT NULL
 );
 
--- 2. La confianza anterior a una correccion, para poder deshacer de verdad.
+-- 2. The confidence before a correction, so undo can actually undo.
 --
--- Una correccion del usuario pone la confianza a 1.0: lo ha dicho el usuario, no hay
--- duda. Pero al deshacer hay que devolver el correo a donde estaba, y eso incluye su
--- confianza original; si no, un correo que estaba en "No estoy seguro" reapareceria
--- afirmado en un bucket despues de deshacer, que es lo contrario de deshacer.
+-- A user correction sets confidence to 1.0: the user said so, there is no doubt. But
+-- undoing has to put the message back where it was, and that includes its original
+-- confidence; otherwise a message that was in "not sure" would reappear asserted in a
+-- bucket, which is the opposite of undoing.
 --
--- No se puede recalcular: `signals_json` guarda la etiqueta y el signo de cada senal,
--- no su peso, asi que la puntuacion original no es reconstruible desde la fila.
+-- It cannot be recomputed: `signals_json` stores each signal's label and sign, not its
+-- weight, so the original score is not reconstructable from the row.
 ALTER TABLE corrections ADD COLUMN confidence_before REAL;
 
--- Indice para el deshacer: se recorre el registro de la mas reciente hacia atras.
-CREATE INDEX idx_corrections_recientes ON corrections(id DESC);
+-- Index for undo: the log is walked backwards from the most recent entry.
+CREATE INDEX idx_corrections_recent ON corrections(id DESC);

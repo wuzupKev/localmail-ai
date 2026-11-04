@@ -2,12 +2,13 @@ using System.Globalization;
 
 namespace LocalMailAI.Api.Api;
 
-// Estos tipos son la copia literal de Email en src/lib/mock.ts. No se tocan sin
-// cambiar antes el front: §3 de BACKEND.md dice que esos tipos son el contrato.
+// These types are a literal copy of Email in src/lib/mock.ts. They are not changed
+// without changing the frontend first: §3 of BACKEND.md states those types are the
+// contract.
 //
-// Van en camelCase porque es lo que hace System.Text.Json por defecto, y las
-// propiedades opcionales se omiten cuando son null en lugar de serializarse como
-// null: en TypeScript "extracted?: {...}" es "X | undefined", no "X | null".
+// They go out in camelCase because that is what System.Text.Json does by default, and
+// optional properties are omitted when null rather than serialised as null: in
+// TypeScript "extracted?: {...}" means "X | undefined", not "X | null".
 
 public sealed record MailboxDto(string Name, string Email);
 
@@ -35,8 +36,8 @@ public sealed record EmailDto
 public sealed record EmailPageDto(EmailDto[] Items, string? NextCursor);
 
 /// <summary>
-/// Recuentos de los tiles de la pantalla principal. "duda" son los correos por
-/// debajo de UMBRAL_CONFIANZA, que no se cuentan en su bucket.
+/// Counts for the tiles on the main screen. "duda" is the set of messages below
+/// UMBRAL_CONFIANZA, which are not counted in their bucket.
 /// </summary>
 public sealed record CountsDto(
     int Responder,
@@ -47,33 +48,34 @@ public sealed record CountsDto(
     int Unread);
 
 /// <summary>
-/// El campo <c>time</c> del contrato: "9:14" si es hoy, "Ayer", "Lun", o "12 oct".
+/// The contract's <c>time</c> field: "9:14" if today, "Ayer", "Lun", or "12 oct".
 ///
-/// La cultura esta fijada a es-ES a proposito. Si se usara la del sistema, la misma
-/// API devolveria "Mon" o "Mo" segun la maquina donde corre el backend, y el front
-/// no tiene forma de saber que le va a llegar.
+/// The culture is pinned to es-ES on purpose. Using the system culture would make the
+/// same API return "Mon" or "Mo" depending on the machine the backend runs on, and the
+/// frontend would have no way to know what it is going to receive. The strings are
+/// Spanish because they are user-facing copy for a Spanish interface.
 /// </summary>
 public static class RelativeTime
 {
     private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-ES");
 
-    public static string Format(DateTimeOffset cuando, DateTimeOffset ahora)
+    public static string Format(DateTimeOffset when, DateTimeOffset now)
     {
-        var dia = cuando.LocalDateTime.Date;
-        var hoy = ahora.LocalDateTime.Date;
-        var dias = (hoy - dia).Days;
+        var day = when.LocalDateTime.Date;
+        var today = now.LocalDateTime.Date;
+        var days = (today - day).Days;
 
-        return dias switch
+        return days switch
         {
-            <= 0 => cuando.LocalDateTime.ToString("H:mm", Es),
+            <= 0 => when.LocalDateTime.ToString("H:mm", Es),
             1 => "Ayer",
-            // Dentro de la semana, el dia de la semana ya situa el correo; poner la
-            // fecha seria mas preciso y menos util.
-            < 7 => Capitalizar(Es.DateTimeFormat.GetAbbreviatedDayName(dia.DayOfWeek)),
-            _ => cuando.LocalDateTime.ToString("d MMM", Es).Replace(".", string.Empty),
+            // Within the week, the weekday already locates the message; a date would
+            // be more precise and less useful.
+            < 7 => Capitalise(Es.DateTimeFormat.GetAbbreviatedDayName(day.DayOfWeek)),
+            _ => when.LocalDateTime.ToString("d MMM", Es).Replace(".", string.Empty),
         };
     }
 
-    private static string Capitalizar(string s) =>
+    private static string Capitalise(string s) =>
         s.Length == 0 ? s : char.ToUpper(s[0], Es) + s[1..];
 }
