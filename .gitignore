@@ -54,19 +54,9 @@ next-env.d.ts
 *.db-shm
 *.db-wal
 
-# Artefactos y caches de HyperFrames. Regenerables desde compositions/ y scripts/:
-# 36 MB de snapshots, contact sheets, formas de onda y renders que no son fuente.
-video/film/.hyperframes/
-video/film/.thumbnails/
-video/film/.waveform-cache/
-video/film/renders/
-
-# Material de trabajo de la pelicula que no entra en el montaje: los originales sin
-# cortar de los que salieron las tres opciones de musica, copias de seguridad y las
-# audiciones de voz. Se quedan en local; el repositorio lleva solo lo que suena.
-video/film/assets/bgm/candidatas/
-video/film/assets/bgm/*.bak.mp3
-video/film/assets/vo/muestras/
-
-# Capturas fallidas de la web (logs de error, no fuente)
+# Material de trabajo que no forma parte del producto publicado. Vive en local:
+# la pelicula de lanzamiento, la especificacion interna y las capturas.
+video/
+docs/
 capture/
+BACKEND.md
