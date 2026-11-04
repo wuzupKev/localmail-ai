@@ -10,6 +10,15 @@ result back as ordinary IMAP labels you can see in Gmail, Apple Mail or on your 
 
 ---
 
+## Demo
+
+https://github.com/wuzupKev/localmail-ai/raw/main/demo.mp4
+
+Thirty-five seconds, start to finish: a buried inbox, the four buckets, the reasons
+behind a decision, and a correction teaching the classifier. ([demo.mp4](demo.mp4))
+
+---
+
 ## What it is
 
 A mailbox mixes three kinds of message that need completely different handling:
