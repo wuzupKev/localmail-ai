@@ -219,9 +219,13 @@ return 0;
 
 // --- Metrics --------------------------------------------------------------------
 
+// Extra column of the confusion matrix: not a bucket, the messages the system refused
+// to commit to. Named once so the key written and the key read stay the same string.
+const string Unsure = "unsure";
+
 static Report Measure(List<(string File, string Expected, string? Produced, double Confidence)> predictions)
 {
-    var buckets = new[] { "responder", "informativo", "automatizado", "ruido" };
+    var buckets = new[] { "reply", "fyi", "automated", "noise" };
 
     // A message below the threshold is NOT a prediction: the system said it does not
     // know. Counting it as a failure would punish caution; counting it as a success
@@ -267,7 +271,7 @@ static Report Measure(List<(string File, string Expected, string? Produced, doub
             row[produced] = committed.Count(p => p.Expected == expected && p.Produced == produced);
         }
         // Extra column: the ones the system would not commit to.
-        row["duda"] = predictions.Count(p =>
+        row[Unsure] = predictions.Count(p =>
             p.Expected == expected && p.Confidence < SignalBaseline.ConfidenceThreshold);
         confusion[expected] = row;
     }
@@ -301,11 +305,11 @@ static void Print(Report r, List<(string File, string Expected, string? Produced
     Console.WriteLine();
 
     Console.WriteLine("confusion matrix (rows = expected, columns = produced):");
-    Console.WriteLine("                  respond.  inform.  automat.   ruido    duda");
+    Console.WriteLine("                     reply      fyi    autom.   noise  unsure");
     foreach (var (expected, row) in r.Confusion)
     {
         Console.Write($"  {expected,-14}");
-        foreach (var column in new[] { "responder", "informativo", "automatizado", "ruido", "duda" })
+        foreach (var column in new[] { "reply", "fyi", "automated", "noise", Unsure })
         {
             Console.Write($"{row[column],9}");
         }
