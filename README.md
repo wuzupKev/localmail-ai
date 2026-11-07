@@ -53,9 +53,10 @@ Three behaviours matter as much as the buckets:
 
 - **It admits when it does not know.** Below 0.55 confidence a message goes to a "not
   sure" drawer instead of being guessed into a bucket.
-- **Corrections teach it.** Moving a message to the right bucket retrains the
-  classifier in place, in about 7 ms. Corrections are stored as events, so undo is
-  just the inverse event.
+- **Corrections are recorded.** Moving a message to the right bucket stores it as a
+  labelled example, and because corrections are events, undo is just the inverse
+  event. They do not yet retrain anything: the classifier that would consume them is
+  milestone 6 and is not written.
 - **Nothing moves on its own.** Labels reach your IMAP server only when you explicitly
   ask, in a batch you confirm.
 
@@ -106,14 +107,16 @@ Messages run through a pipeline ordered by increasing cost — IMAP fetch, MIME 
 normalisation, deterministic signals, embedding, classifier. **A usable answer exists
 after the signals stage**, before any model runs, so triage works from minute zero.
 
-The classifier is a logistic regression over the embedding plus the signal vector, not
-a language model: more accurate here, far faster, and retrainable in place after every
-correction. Ollama is only used for optional summaries and extraction — without it the
+The intended classifier is a logistic regression over the embedding plus the signal
+vector, not a language model: more accurate here, far faster, and retrainable in place
+after every correction. **It is not built yet.** Every message you see today was
+classified by the deterministic signals alone, and `model_version` is 0 for all of
+them. Ollama is only used for optional summaries and extraction — without it the
 product works, just without those two features.
 
 | Component | Implementation |
 |---|---|
-| Classification | Deterministic header signals + logistic regression (SGD) |
+| Classification | Deterministic header signals. The logistic regression (SGD) is designed, not written |
 | Embeddings | `multilingual-e5-small`, ONNX Runtime, 384 dimensions |
 | Search | BM25 (SQLite FTS5) + vector similarity, fused with RRF |
 | Storage | SQLite, a single file |
