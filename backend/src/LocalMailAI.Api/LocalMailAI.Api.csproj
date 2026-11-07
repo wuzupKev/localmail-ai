@@ -4,7 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <!-- Un aviso que se ignora acaba siendo un bug. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>

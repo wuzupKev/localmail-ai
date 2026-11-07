@@ -5,6 +5,13 @@ feature, the patch number on fixes alone. Backend and frontend carry the same nu
 and are released together, because the TypeScript types in `frontend/src/lib/mock.ts`
 are the API contract and the two cannot drift apart.
 
+## [0.2.1] — 2026-11-06
+
+### Added
+
+- **A licence.** The project was public with none, which by default means all rights
+  reserved: nobody could legally use, fork or contribute to it. It is now MIT.
+
 ## [0.2.0] — 2026-11-06
 
 First version run end to end against a real mailbox rather than the fixtures. That is

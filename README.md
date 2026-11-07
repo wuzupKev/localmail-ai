@@ -275,4 +275,4 @@ Per-milestone detail, measured numbers and the reasoning behind each decision ar
 
 ## Licence
 
-Undecided.
+[MIT](LICENSE). Use it, fork it, ship it.
