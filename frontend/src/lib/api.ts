@@ -96,6 +96,18 @@ export const api = {
   modelStatus: () => request<ModelStatus>("/api/model/status"),
 
   /**
+   * Generates the thread summary, or returns the cached one. Slow by nature: it runs
+   * a local model on CPU, so the caller must show progress. Answers 503 with code
+   * `ollama_unavailable` when Ollama or the model is missing, and that message is
+   * meant to be shown: it says what to install.
+   */
+  summarise: (id: string, force = false) =>
+    request<{ summary: string; model: string }>(
+      `/api/emails/${encodeURIComponent(id)}/summary${force ? "?force=true" : ""}`,
+      { method: "POST" }
+    ),
+
+  /**
    * Hybrid search. Today only the BM25 half answers -- `source` is always "bm25" --
    * because the vector half needs the embedding model. The field is in the response
    * so wiring the other half later changes nothing here.

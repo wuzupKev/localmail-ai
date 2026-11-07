@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BUCKETS, type Email } from "@/lib/mock";
+import { api, ApiError } from "@/lib/api";
 import { Avatar, BucketPill, Confidence, SignalRow, UrgencyPill } from "./bits";
 
 function Seccion({ titulo, extra, children }: { titulo: string; extra?: React.ReactNode; children: React.ReactNode }) {
@@ -26,17 +27,34 @@ function Contenido({
   email: Email;
   onReclassify: (id: string, bucket: Email["bucket"]) => void;
 }) {
-  const [resumen, setSummary] = useState<string | null>(null);
+  const [resumen, setSummary] = useState<string | null>(email.summary ?? null);
   const [cargando, setCargando] = useState(false);
+  const [errorSummary, setErrorSummary] = useState<string | null>(null);
   const bajaConfidence = email.confidence < 0.55;
 
-  // Fake latency imitating an SLM prefill on CPU: the front must be designed for it to be slow.
-  const pedirSummary = () => {
+  // The panel is reused across messages, so without this the summary of the previous
+  // thread would stay on screen under the new subject.
+  useEffect(() => {
+    setSummary(email.summary ?? null);
+    setErrorSummary(null);
+    setCargando(false);
+  }, [email.id, email.summary]);
+
+  // Real generation: a local model on CPU, seconds rather than milliseconds. The UI is
+  // built for that wait instead of hiding it.
+  const pedirSummary = async () => {
     setCargando(true);
-    setTimeout(() => {
-      setSummary(email.summary ?? "Short thread: no summary needed.");
+    setErrorSummary(null);
+    try {
+      const r = await api.summarise(email.id);
+      setSummary(r.summary);
+    } catch (e) {
+      // The backend's message for a missing Ollama says what to install, so it is
+      // shown verbatim rather than replaced with a generic failure.
+      setErrorSummary(e instanceof ApiError ? e.message : "could not generate the summary");
+    } finally {
       setCargando(false);
-    }, 1400);
+    }
   };
 
   return (
@@ -95,7 +113,7 @@ function Contenido({
         titulo={`Summary · ${email.threadCount} msg`}
         extra={
           !resumen &&
-          !cargando && (
+          !cargando && !errorSummary && (
             <button
               onClick={pedirSummary}
               className="btn btn-tint rounded-lg px-2.5 py-1 text-[11px] font-semibold"
@@ -108,16 +126,27 @@ function Contenido({
       >
         {cargando && (
           <div className="text-[12px]" style={{ color: "var(--ink-3)" }}>
-            <span className="animate-blink">Qwen3 4B running locally…</span>
-            <div className="mt-1 font-mono text-[10.5px]">~4,100 input tokens</div>
+            <span className="animate-blink">Running locally…</span>
           </div>
         )}
-        {resumen && (
+        {!cargando && resumen && (
           <p className="animate-fade text-[12.5px] leading-relaxed" style={{ color: "var(--ink-2)" }}>
             {resumen}
           </p>
         )}
-        {!resumen && !cargando && (
+        {!cargando && !resumen && errorSummary && (
+          <div className="text-[12px]" style={{ color: "var(--ink-3)" }}>
+            <p style={{ color: "var(--t-unsure-ink)" }}>{errorSummary}</p>
+            <button
+              onClick={pedirSummary}
+              className="btn mt-2 rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+              style={{ background: "var(--brand-soft)", color: "var(--brand)" }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
+        {!cargando && !resumen && !errorSummary && (
           <p className="text-[12px]" style={{ color: "var(--ink-3)" }}>
             On demand.
           </p>

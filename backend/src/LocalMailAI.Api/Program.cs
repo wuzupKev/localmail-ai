@@ -32,6 +32,8 @@ builder.Services.AddSingleton<CorrectionsRepository>();
 builder.Services.AddSingleton<ModelStatusService>();
 builder.Services.AddSingleton<ImapSync>();
 builder.Services.AddSingleton<LabelWriter>();
+builder.Services.AddSingleton<OllamaClient>();
+builder.Services.AddSingleton<SummaryService>();
 
 // In TypeScript "extracted?: {...}" is "X | undefined", not "X | null": an optional
 // property that does not exist is omitted, not serialised as null.
@@ -235,6 +237,31 @@ app.MapPost("/api/emails/{id}/classification",
 app.MapPost("/api/corrections/undo", async (CorrectionsRepository corrections) =>
 {
     return Results.Ok(await corrections.UndoAsync(DateTimeOffset.Now));
+});
+
+// --- Thread summary (§5) -----------------------------------------------------------
+// On demand only, never on sync: generation costs seconds of CPU and most threads are
+// never opened. ?force=true regenerates instead of serving the cache.
+//
+// Unlike the summary carried by GET /api/emails, which §5 limits to threads of three
+// messages or more, this route summarises whatever it is asked to: the limit there is
+// about not cluttering a list, and here the user clicked the button.
+app.MapPost("/api/emails/{id}/summary", async (SummaryService summaries, string id, bool? force, CancellationToken ct) =>
+{
+    try
+    {
+        var summary = await summaries.ForEmailAsync(id, force ?? false, ct);
+
+        return summary is null
+            ? Error(StatusCodes.Status404NotFound, "email_no_encontrado", $"no message with id '{id}'")
+            : Results.Ok(new { summary, model = OllamaClient.Model });
+    }
+    catch (OllamaUnavailableException ex)
+    {
+        // 503 and not 500: the service is fine, the optional dependency is not, and
+        // the frontend shows the message as-is so the user knows what to install.
+        return Error(StatusCodes.Status503ServiceUnavailable, "ollama_unavailable", ex.Message);
+    }
 });
 
 app.Run();

@@ -231,6 +231,10 @@ Base URL `http://127.0.0.1:5174`. JSON, camelCase, UTF-8. Binds to localhost onl
 | `POST /api/emails/{id}/classification` | Correct a classification |
 | `POST /api/corrections/undo` | Undo the last correction |
 | `GET /api/model/status` | Example counts, precision, model availability |
+| `POST /api/sync` | Starts an IMAP pass; poll `GET /api/sync/status` |
+| `GET /api/labels/pending` | Messages whose bucket differs from the last one written |
+| `POST /api/labels/apply` | The only call that writes to your mail server |
+| `POST /api/emails/{id}/summary` | Summarises the thread; `503` without Ollama |
 
 `bucket` accepts the four bucket names plus `unsure` for below-threshold messages.
 Errors are `{"error": {"code", "message"}}` with the matching HTTP status.
@@ -253,10 +257,15 @@ Pre-release. The triage path works end to end against the bundled fixtures; **IM
 synchronisation is the main gap** between this and daily use.
 
 **Working:** signal-based triage, the API above, corrections with undo, full-text
-search, local embeddings, account setup with live IMAP verification.
+search, account setup with live IMAP verification, IMAP synchronisation, label
+write-back, and thread summaries when Ollama is installed.
 
-**Not yet:** IMAP sync and label write-back, the trained classifier, vector search
-fused with BM25, summaries and extraction, multiple accounts.
+**Not yet:** the trained classifier, vector search fused with BM25, extraction,
+multiple accounts.
+
+The honest caveat is accuracy, not plumbing: every message is still classified by the
+deterministic signals alone (`model_version` 0). That is enough to put newsletters in
+`noise`, and not enough to tell a deploy notification from a client waiting on you.
 
 Per-milestone detail, measured numbers and the reasoning behind each decision are in
 [backend/README.md](backend/README.md).

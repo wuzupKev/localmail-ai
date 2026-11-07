@@ -103,7 +103,7 @@ public sealed class ModelStatusService(
             Precision: precision,
 
             Embeddings: E5Embedder.ModelName,
-            Slm: "Qwen3 4B - Q4_K_M",
+            Slm: OllamaClient.Model,
             LastTrained: lastTrained is null
                 ? null
                 : DateTimeOffset.Parse(lastTrained, null, System.Globalization.DateTimeStyles.RoundtripKind),
