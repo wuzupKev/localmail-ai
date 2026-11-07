@@ -94,6 +94,10 @@ public sealed class ImapSync(
                 SELECT id AS Id, email AS Email, imap_host AS ImapHost, imap_port AS ImapPort,
                        credential_key AS CredentialKey, last_uid AS LastUid, uid_validity AS UidValidity
                 FROM accounts
+                -- The --seed fixtures account is a local placeholder (host 'localhost',
+                -- port 0, no stored credential), not a mailbox. Including it made sync
+                -- throw on the first account and never reach the real ones.
+                WHERE credential_key <> 'none-local-seed'
                 ORDER BY created_at
                 """)).ToList();
 
@@ -104,11 +108,37 @@ public sealed class ImapSync(
             }
 
             var ingested = 0;
+            var failures = new List<string>();
+
             foreach (var account in accounts)
             {
                 ct.ThrowIfCancellationRequested();
-                ingested += await SyncAccountAsync(cn, account, ct);
+
+                // One mailbox failing must not cost the user the others. A revoked app
+                // password or a server that is down is a per-account problem: it is
+                // recorded and reported, and the remaining accounts still sync.
+                try
+                {
+                    ingested += await SyncAccountAsync(cn, account, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogError(ex, "Sync failed for {Email}", account.Email);
+                    failures.Add($"{account.Email}: {ex.Message}");
+                }
             }
+
+            // Everything failed: there is no partial success to report, so this is a
+            // failed sync and the caller is told so.
+            if (failures.Count == accounts.Count)
+            {
+                throw new InvalidOperationException(string.Join("; ", failures));
+            }
+
+            // Some worked. The pass counts as done - the watermarks of the accounts
+            // that succeeded did advance - but the error stays visible in the status
+            // rather than disappearing behind a green tick.
+            _error = failures.Count == 0 ? null : string.Join("; ", failures);
 
             _lastSync = DateTimeOffset.UtcNow.ToString("O");
             return ingested;
