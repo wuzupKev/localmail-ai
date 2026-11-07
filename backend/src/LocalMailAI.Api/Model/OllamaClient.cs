@@ -22,6 +22,17 @@ public sealed class OllamaClient(ILogger<OllamaClient> log)
     /// </summary>
     public const string Model = "qwen3:4b";
 
+    /// <summary>
+    /// Tokens allowed for the model's reasoning on top of the answer itself. Qwen3
+    /// thinks before writing and that thinking is billed to the same budget.
+    ///
+    /// Generous because it is a ceiling, not a target: generation stops when the
+    /// model finishes, so a high limit costs nothing on the common case and is the
+    /// difference between a summary and an empty answer on a long thread. Measured
+    /// at 900, where threads in Spanish ran out mid-reasoning.
+    /// </summary>
+    private const int ThinkingBudget = 3000;
+
     // Generation is slow on CPU and this is an explicit user action, so the timeout is
     // generous. The availability probe uses its own short one: a sidebar must not hang
     // for two minutes because Ollama is not installed.
@@ -35,18 +46,24 @@ public sealed class OllamaClient(ILogger<OllamaClient> log)
     public async Task<string> GenerateAsync(
         string system, string prompt, int maxTokens, CancellationToken ct = default)
     {
-        var request = new GenerateRequest(
+        // /api/chat and not /api/generate. Qwen3 is a hybrid reasoning model and
+        // thinks before answering; only the chat endpoint separates that reasoning
+        // into its own field. On /api/generate it arrives glued to the front of the
+        // answer, and "think": false does not prevent it - the model reasons anyway
+        // and the flag only stops Ollama from splitting it out.
+        var request = new ChatRequest(
             Model: Model,
-            System: system,
-            Prompt: prompt,
+            Messages:
+            [
+                new ChatMessage("system", system),
+                new ChatMessage("user", prompt),
+            ],
             Stream: false,
-
-            // Qwen3 is a hybrid reasoning model with thinking ON by default. For a
-            // three-line summary the reasoning is pure latency - hundreds of tokens
-            // before the first word of the answer - so it is turned off explicitly.
-            Think: false,
             Options: new GenerateOptions(
-                NumPredict: maxTokens,
+                // The budget covers reasoning AND answer. Sized for the answer plus
+                // room to think: too tight and generation stops mid-reasoning, which
+                // returns an empty content rather than a short summary.
+                NumPredict: maxTokens + ThinkingBudget,
 
                 // Low but not zero: a summary should be reproducible between two runs
                 // over the same thread, while still reading like prose.
@@ -55,9 +72,18 @@ public sealed class OllamaClient(ILogger<OllamaClient> log)
         HttpResponseMessage response;
         try
         {
-            response = await Http.PostAsJsonAsync($"{Endpoint}/api/generate", request, ct);
+            response = await Http.PostAsJsonAsync($"{Endpoint}/api/chat", request, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            // Timing out is not the same as not being installed, and saying "install
+            // Ollama" to someone who has it running is worse than saying nothing.
+            log.LogWarning(ex, "Ollama timed out after {Timeout}", Http.Timeout);
+            throw new OllamaUnavailableException(
+                $"Ollama took longer than {Http.Timeout.TotalMinutes:0} minutes. The first "
+                + "call after starting it also loads the model into memory.", ex);
+        }
+        catch (HttpRequestException ex)
         {
             log.LogWarning(ex, "Ollama did not answer on {Endpoint}", Endpoint);
             throw new OllamaUnavailableException(
@@ -79,12 +105,17 @@ public sealed class OllamaClient(ILogger<OllamaClient> log)
             throw new OllamaUnavailableException($"Ollama answered {(int)response.StatusCode}: {detail}");
         }
 
-        var body = await response.Content.ReadFromJsonAsync<GenerateResponse>(ct);
-        var text = body?.Response?.Trim();
+        var body = await response.Content.ReadFromJsonAsync<ChatResponse>(ct);
+        var text = body?.Message?.Content?.Trim();
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            throw new OllamaUnavailableException("Ollama returned an empty response");
+            // The usual cause is the token budget running out during the reasoning,
+            // which leaves the answer empty. Saying so beats "empty response".
+            throw new OllamaUnavailableException(
+                body?.DoneReason == "length"
+                    ? "the model ran out of tokens while reasoning and never reached an answer"
+                    : "Ollama returned an empty response");
         }
 
         return text;
@@ -108,20 +139,28 @@ public sealed class OllamaClient(ILogger<OllamaClient> log)
         }
     }
 
-    private sealed record GenerateRequest(
+    private sealed record ChatRequest(
         [property: JsonPropertyName("model")] string Model,
-        [property: JsonPropertyName("system")] string System,
-        [property: JsonPropertyName("prompt")] string Prompt,
+        [property: JsonPropertyName("messages")] ChatMessage[] Messages,
         [property: JsonPropertyName("stream")] bool Stream,
-        [property: JsonPropertyName("think")] bool Think,
         [property: JsonPropertyName("options")] GenerateOptions Options);
+
+    private sealed record ChatMessage(
+        [property: JsonPropertyName("role")] string Role,
+        [property: JsonPropertyName("content")] string Content);
 
     private sealed record GenerateOptions(
         [property: JsonPropertyName("num_predict")] int NumPredict,
         [property: JsonPropertyName("temperature")] double Temperature);
 
-    private sealed record GenerateResponse(
-        [property: JsonPropertyName("response")] string? Response);
+    private sealed record ChatResponse(
+        [property: JsonPropertyName("message")] ChatResponseMessage? Message,
+        [property: JsonPropertyName("done_reason")] string? DoneReason);
+
+    // "thinking" is deliberately not read: it is the model's reasoning, not the
+    // summary, and the UI must never show it.
+    private sealed record ChatResponseMessage(
+        [property: JsonPropertyName("content")] string? Content);
 }
 
 /// <summary>Ollama is absent, unreachable, or the model is not pulled.</summary>
